@@ -17,7 +17,7 @@ import torch.nn.functional as F
 # %% ../../nbs/02_sparse.sparsify_callback.ipynb 4
 class SparsifyCallback(Callback):
     "Sparsify model during training"
-    def __init__(self, sparsity, granularity, context, criteria, schedule, lth=False, rewind_epoch=0, reset_end=False, save_tickets=False, model=None, round_to=None, layer_type=nn.Conv2d):
+    def __init__(self, sparsity, granularity, context, criteria, schedule, lth=False, rewind_epoch=0, reset_end=False, save_tickets=False, model=None, round_to=None, nm=False, layer_type=nn.Conv2d):
         store_attr()
         self.sparsity = listify(self.sparsity)
 
@@ -25,7 +25,7 @@ class SparsifyCallback(Callback):
         print(f'Pruning of {self.granularity} until a sparsity of {self.sparsity}%')
         assert self.schedule.start_pct*self.n_epoch>=self.rewind_epoch, 'You must rewind to an epoch before the start of the pruning process'
         model = self.model or self.learn.model
-        self.sparsifier = Sparsifier(model, self.granularity, self.context, self.criteria, self.layer_type)
+        self.sparsifier = Sparsifier(model, self.granularity, self.context, self.criteria, self.nm, self.layer_type)
 
     def before_epoch(self):
         if self.epoch == self.rewind_epoch:

@@ -15,7 +15,8 @@ from ..core.criteria import *
 # %% ../../nbs/01_sparse.sparsifier.ipynb 5
 class Sparsifier():
     "Class providing sparsifying capabilities"
-    def __init__(self, model, granularity, context, criteria, layer_type=nn.Conv2d):
+    def __init__(self, model, granularity, context, criteria, nm=False, layer_type=nn.Conv2d):
+        if nm == True: print('Sparsity automatically set to 50%')
         store_attr()
         self._save_weights() # Save the original weights
         self._reset_threshold()
@@ -116,6 +117,7 @@ class Sparsifier():
         return self.threshold
     
     def _compute_mask(self, scores, threshold):
+        if self.nm == True: return self.apply_nm_sparsity(scores)
         if threshold > scores.max(): threshold = scores.max() # Make sure we don't remove every weight of a given layer
         return scores.ge(threshold).to(dtype=scores.dtype)
     
@@ -123,3 +125,20 @@ class Sparsifier():
         for k,m in enumerate(self.model.modules()):
             if isinstance(m, self.layer_type):
                 print(f"Sparsity in {m.__class__.__name__} {k}: {100. * float(torch.sum(m.weight == 0))/ float(m.weight.nelement()):.2f}%")
+
+    def apply_nm_sparsity(self, scores):
+        out_channels, in_channels, kernel_height, kernel_width = scores.shape
+        sparse_mask = torch.ones_like(scores)
+        if in_channels * kernel_height * kernel_width % 16 != 0:
+            print(f"Skipping 2:4 sparsity, Cin * Kh * Kw is not a multiple of 16")
+            return sparse_mask  # Return weights unchanged if condition is not met
+        for out_ch in range(out_channels):
+            for h in range(kernel_height):
+                for w in range(kernel_width):
+                    kernel_weights = scores[out_ch, :, h, w]
+                    blocks = kernel_weights.view(-1, 4)  # Flatten into blocks of 4
+                    _, indices = blocks.topk(2, dim=1, largest=True, sorted=False)  # Retain top-2 absolute values in each block
+                    mask = torch.zeros_like(blocks)
+                    mask.scatter_(1, indices, 1)
+                    sparse_mask[out_ch, :, h, w] = mask.view(-1)  # Reshape and place the mask in the appropriate location
+        return sparse_mask
