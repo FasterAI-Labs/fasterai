@@ -50,54 +50,54 @@ website:
       - quickstart.ipynb
       - section: Tutorials
         contents:
-        - 07aa_tutorial.walkthrough.ipynb
+        - tutorials/walkthrough.ipynb
         - section: Sparse
           contents:
-          - 07a_tutorial.schedules.ipynb
-          - 07b_tutorial.sparsifier.ipynb
-          - 07c_tutorial.sparsify_callback.ipynb
-          - 07e_tutorial.lottery_ticket.ipynb
-          - 07f_tutorial.transformers.ipynb
+          - tutorials/sparse/schedules.ipynb
+          - tutorials/sparse/sparsifier.ipynb
+          - tutorials/sparse/sparsify_callback.ipynb
+          - tutorials/sparse/lottery_ticket.ipynb
+          - tutorials/sparse/transformers.ipynb
         - section: Prune
           contents: 
-          - 07d_tutorial.prune_callback.ipynb
-          - 11_tutorial.YOLOV8.ipynb
+          - tutorials/prune/prune_callback.ipynb
+          - tutorials/prune/YOLOV8.ipynb
         - section: Distill
           contents:
-          - 08a_tutorial.knowledge_distillation.ipynb
+          - tutorials/distill/distill_callback.ipynb
         - section: Regularize
           contents:
-          - 09a_tutorial.regularizer.ipynb
+          - tutorials/regularize/regularize_callback.ipynb
         - section: Misc
           contents:
-          - 010a_tutorial.bn_folding.ipynb
-          - 010b_tutorial.fc_decomposer.ipynb
+          - tutorials/misc/bn_folding.ipynb
+          - tutorials/misc/fc_decomposer.ipynb
       - section: Core
         contents:
-        - 00a_core.granularity.ipynb
-        - 00b_core.criteria.ipynb
-        - 00c_core.schedules.ipynb
+        - core/granularity.ipynb
+        - core/criteria.ipynb
+        - core/schedules.ipynb
       - section: Sparse
         contents:
-        - 01_sparse.sparsifier.ipynb
-        - 02_sparse.sparsify_callback.ipynb
+        - sparse/sparsifier.ipynb
+        - sparse/sparsify_callback.ipynb
       - section: Prune
         contents: 
-        - 03_prune.pruner.ipynb
-        - 03b_prune.prune_callback.ipynb
+        - prune/pruner.ipynb
+        - prune/prune_callback.ipynb
       - section: Distill
         contents:
-        - 04_distill.knowledge_distillation.ipynb
+        - distill/knowledge_distillation.ipynb
       - section: Quantize
         contents:
-        - 06_quantize.quantizer.ipynb
-        - 06b_quantize.quantize_callback.ipynb
+        - quantize/quantizer.ipynb
+        - quantize/quantize_callback.ipynb
       - section: Regularize
         contents:
-        - 05_regularize.regularizer.ipynb
+        - regularize/regularizer.ipynb
       - section: Misc
         contents:
-        - 06a_misc.bn_folding.ipynb
-        - 06b_misc.fc_decomposer.ipynb
+        - misc/bn_folding.ipynb
+        - misc/fc_decomposer.ipynb
 
 metadata-files: [nbdev.yml]
