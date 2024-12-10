@@ -2,8 +2,8 @@
 
 d = { 'settings': { 'branch': 'master',
                 'doc_baseurl': '/fasterai/',
-                'doc_host': 'https://nathanhubens.github.io',
-                'git_url': 'https://github.com/nathanhubens/fasterai/tree/master/',
+                'doc_host': 'https://FasterAI-Labs.github.io',
+                'git_url': 'https://github.com/FasterAI-Labs/fasterai/tree/master/',
                 'lib_path': 'fasterai'},
   'syms': { 'fasterai.core.all': {},
             'fasterai.core.criteria': { 'fasterai.core.criteria.Criteria': ('core.criteria.html#criteria', 'fasterai/core/criteria.py'),
