@@ -87,14 +87,14 @@ website:
         - prune/prune_callback.ipynb
       - section: Distill
         contents:
-        - distill/knowledge_distillation.ipynb
+        - distill/distill_callback.ipynb
       - section: Quantize
         contents:
         - quantize/quantizer.ipynb
         - quantize/quantize_callback.ipynb
       - section: Regularize
         contents:
-        - regularize/regularizer.ipynb
+        - regularize/regularize_callback.ipynb
       - section: Misc
         contents:
         - misc/bn_folding.ipynb
