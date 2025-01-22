@@ -44,6 +44,13 @@ class Schedule():
     def reset(self):
         self.current_sparsity, self.previous_sparsity = map(listify, [self.start_sparsity, self.start_sparsity])
 
+    
+    def _scheduler(self, pruning_ratio_dict, steps, start=0, end=1, *args, **kwargs):
+        return [
+            self.sched_func(start, end, i / float(steps), *args, **kwargs) * pruning_ratio_dict
+            for i in range(steps + 1)
+        ]
+
 # %% ../../nbs/core/schedules.ipynb 9
 def sched_oneshot(start, end, pos): return end
 

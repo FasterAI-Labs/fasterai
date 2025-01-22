@@ -16,27 +16,36 @@ import torch.nn.functional as F
 
 # %% ../../nbs/prune/prune_callback.ipynb 4
 class PruneCallback(Callback):
-    def __init__(self, sparsity:int, context:str, criteria:Callable, schedule:Callable, model:nn.Module=None, round_to:int=None, layer_type:nn.Module=nn.Conv2d):
+    def __init__(self, pruning_ratio, schedule, context, criteria, *args, **kwargs):
         store_attr()
-        self.sparsity = listify(self.sparsity)
+        self.sparsity_levels = []
+        self.extra_args = args
+        self.extra_kwargs = kwargs
 
     def before_fit(self):
-        print(f'Pruning until a sparsity of {self.sparsity}%')
-        model = self.model if self.model else self.learn.model
-        self.pruner = Pruner(model, self.context, self.criteria, layer_type=self.layer_type)
+        n_batches_per_epoch = len(self.learn.dls.train)
+        total_training_steps = n_batches_per_epoch * self.learn.n_epoch
+        self.pruning_ratio = self.pruning_ratio/100 if self.pruning_ratio>1 else self.pruning_ratio
 
-    def before_batch(self):
-        self.current_sparsity = self.schedule(self.sparsity, round(self.pct_train,3))
-        if self.schedule.pruned and self.training:
-            self.pruner.prune_model(self.current_sparsity[0], self.round_to)
-
-    def after_step(self):
-        self.schedule.after_pruned()
+        self.example_inputs, _ = self.learn.dls.one_batch()
+        self.sparsity_levels = self.schedule._scheduler(self.pruning_ratio, total_training_steps)
+        
+        self.pruner = Pruner(
+        self.learn.model,
+        criteria=self.criteria,
+        pruning_ratio=self.pruning_ratio, 
+        context=self.context,
+        iterative_steps= total_training_steps, 
+        schedule=self.schedule._scheduler,
+        *self.extra_args, 
+        **self.extra_kwargs
+        )
+        
+    def before_step(self):
+        if self.training: 
+            self.pruner.prune_model()
 
     def after_epoch(self):
-        sparsity_str = [float(f"%0.2f"%sp) for sp in self.current_sparsity]
-        print(f'Sparsity at the end of epoch {self.epoch}: {sparsity_str}%')
-
-    def after_fit(self):
-        print(f'Final Sparsity: {self.schedule.current_sparsity:}%')
-        self.schedule.reset()
+        completed_steps = (self.epoch + 1) * len(self.learn.dls.train)
+        current_sparsity = self.sparsity_levels[completed_steps - 1]
+        print(f'Sparsity at the end of epoch {self.epoch}: {current_sparsity*100:.2f}%')
