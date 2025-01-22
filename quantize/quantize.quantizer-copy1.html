@@ -1,0 +1,2166 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.6.40">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="Quantize your network">
+
+<title>Quantizer – fasterai</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-549806ee2085284f45b00abea8c6df48.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-8ea72dc5fed832574809a9c94082fbbb.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-bc5a7a217b63d3deff1f65d7ec0cb11d.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-3ec1d609ad9fd01a93c09f189935e7cb.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-424WWZFZ5F"></script>
+
+<script type="text/javascript">
+
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-424WWZFZ5F', { 'anonymize_ip': true});
+</script>
+
+
+<link rel="stylesheet" href="../styles.css">
+<meta property="og:title" content="Quantizer – fasterai">
+<meta property="og:description" content="Quantize your network">
+<meta property="og:site_name" content="fasterai">
+<meta name="twitter:title" content="Quantizer – fasterai">
+<meta name="twitter:description" content="Quantize your network">
+<meta name="twitter:creator" content="@nathanhubens">
+<meta name="twitter:site" content="@fasterai">
+<meta name="twitter:card" content="summary">
+</head>
+
+<body class="nav-sidebar floating nav-fixed">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">fasterai</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="mailto:nathan.hubens@gmail.com?subject=Hello"> <i class="bi bi-chat-right-text" role="img">
+</i> 
+<span class="menu-text">Contact Me</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://github.com/nathanhubens/fasterai/issues"> <i class="bi bi-bug" role="img">
+</i> 
+<span class="menu-text">Report an Issue</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://discord.gg/32BwhJSB9u"> <i class="bi bi-discord" role="img">
+</i> 
+<span class="menu-text">Join the Community</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/nathanhubens/fasterai"> <i class="bi bi-github" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://twitter.com/fasterai"> <i class="bi bi-twitter" role="img" aria-label="FasterAI Twitter">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="Toggle dark mode"><i class="bi"></i></a>
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item">Quantizer</li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../overview.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Overview</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quickstart.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quick Start</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false">
+ <span class="menu-text">Tutorials</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/walkthrough.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Walkthrough</span></a>
+  </div>
+</li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false">
+ <span class="menu-text">Sparse</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/schedules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Schedules</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/sparsifier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsifier</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/sparsify_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsify Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/lottery_ticket.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Lottery Ticket Hypothesis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/transformers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Transformers</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false">
+ <span class="menu-text">Prune</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/prune/prune_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/prune/yolov8.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">YOLOV8</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+ <span class="menu-text">Distill</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/distill/distill_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">KnowledgeDistillation Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
+ <span class="menu-text">Regularize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/regularize/regularize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Regularize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
+ <span class="menu-text">Misc</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/misc/bn_folding.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">BatchNorm Folding</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/misc/fc_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Fully-Connected layers decomposition</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
+ <span class="menu-text">Core</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/granularity.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Granularity</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/criteria.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Criteria</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/schedules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Schedules</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
+ <span class="menu-text">Sparse</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../sparse/sparsifier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsifier</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../sparse/sparsify_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsify Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false">
+ <span class="menu-text">Prune</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../prune/pruner.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Pruner</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../prune/prune_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false">
+ <span class="menu-text">Distill</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+ <span class="menu-text">distill/distill_callback.ipynb</span>
+  </li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false">
+ <span class="menu-text">Quantize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quantize/quantizer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantizer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quantize/quantize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false">
+ <span class="menu-text">Regularize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regularize/regularize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Regularize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false">
+ <span class="menu-text">Misc</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/bn_folding.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Batch Norm Folding</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/fc_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Fully-Connected Layers Decomposer</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#quantizer" id="toc-quantizer" class="nav-link active" data-scroll-target="#quantizer">Quantizer</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/FasterAI-Labs/fasterai/tree/master/issues/new" class="toc-action"><i class="bi bi-github"></i>Report an issue</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Quantizer</h1>
+</div>
+
+<div>
+  <div class="description">
+    Quantize your network
+  </div>
+</div>
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<!-- WARNING: THIS FILE WAS AUTOGENERATED! DO NOT EDIT! -->
+<div id="9e88ee70-e77b-41bb-9754-d0379122bf5b" class="cell">
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>config <span class="op">=</span> get_default_qconfig_mapping(<span class="st">"x86"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="5b711b44-9112-48cb-a671-92ded90bd6c8" class="cell">
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> torch.ao.quantization.observer <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> torch.ao.quantization.qconfig_mapping <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> torch.ao.quantization.qconfig <span class="im">import</span> <span class="op">*</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="1f3b3667-7e12-4976-82d0-cbdb81c690c9" class="cell">
+<div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>qconfig <span class="op">=</span> torch.ao.quantization.QConfig(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>            activation<span class="op">=</span>MinMaxObserver.with_args(dtype<span class="op">=</span>torch.qint8),</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>            weight<span class="op">=</span>MinMaxObserver.with_args(dtype<span class="op">=</span>torch.qint8))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="221f6ffc-3347-471f-b890-ec466e5add0e" class="cell">
+<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>qconfig</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>QConfig(activation=functools.partial(&lt;class 'torch.ao.quantization.observer.MinMaxObserver'&gt;, dtype=torch.qint8){}, weight=functools.partial(&lt;class 'torch.ao.quantization.observer.MinMaxObserver'&gt;, dtype=torch.qint8){})</code></pre>
+</div>
+</div>
+<div id="a53e9f0a-2b7e-4266-81be-51eeb71b413d" class="cell">
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>qconfig_mapping <span class="op">=</span> get_default_qconfig_mapping(<span class="st">"x86"</span>)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>qconfig <span class="op">=</span> torch.ao.quantization.QConfig(</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>            activation<span class="op">=</span>MinMaxObserver.with_args(dtype<span class="op">=</span>torch.qint8),</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>            weight<span class="op">=</span>MinMaxObserver.with_args(dtype<span class="op">=</span>torch.quint8))</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>qconfig_mapping.set_global(qconfig)</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>x, _ <span class="op">=</span> dls.valid.one_batch()</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>model_prepared <span class="op">=</span> prepare_fx(model.<span class="bu">eval</span>(), qconfig_mapping, x</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>convert_fx(model_prepared)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="55f51780-1699-48a7-9cca-0913681de77c" class="cell">
+<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> timm.create_model(<span class="st">'resnet34'</span>, pretrained<span class="op">=</span><span class="va">True</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="6f02a6a2-5f3b-43c4-b2f4-9f88eaf47b82" class="cell">
+<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> torch</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> torch.nn <span class="im">as</span> nn</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> torch.nn.functional <span class="im">as</span> F</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> torch.ao.quantization <span class="im">import</span> get_default_qconfig_mapping</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> torch.ao.quantization.quantize_fx <span class="im">as</span> quantize_fx</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> torch.ao.quantization.quantize_fx <span class="im">import</span> convert_fx, prepare_fx</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a><span class="co"># %% ../../nbs/06_quantize.quantizer.ipynb 4</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> Quantizer():</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, backend<span class="op">=</span><span class="st">"x86"</span>):</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.qconfig <span class="op">=</span> get_default_qconfig_mapping(backend)</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> quantize(<span class="va">self</span>, model, calibration_dl):</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>        x, _ <span class="op">=</span> calibration_dl.valid.one_batch()</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>        model_prepared <span class="op">=</span> prepare_fx(model.<span class="bu">eval</span>(), <span class="va">self</span>.qconfig, x)</span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>        _ <span class="op">=</span> [model_prepared(xb.to(<span class="st">'cpu'</span>)) <span class="cf">for</span> xb, _ <span class="kw">in</span> calibration_dl.valid]</span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> convert_fx(model_prepared)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="50facf59-92b3-49b8-81dd-e91df23f48b6" class="cell">
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>path <span class="op">=</span> untar_data(URLs.PETS)</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>files <span class="op">=</span> get_image_files(path<span class="op">/</span><span class="st">"images"</span>)</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> label_func(f): <span class="cf">return</span> f[<span class="dv">0</span>].isupper()</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>dls <span class="op">=</span> ImageDataLoaders.from_name_func(path, files, label_func, item_tfms<span class="op">=</span>Resize(<span class="dv">64</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="1e0c9798-7334-4cda-8f41-03195f90f6bd" class="cell">
+<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> timm</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>pretrained_resnet_34 <span class="op">=</span> timm.create_model(<span class="st">'resnet34'</span>, pretrained<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>qt <span class="op">=</span> Quantizer(granularity<span class="op">=</span><span class="st">'tensor'</span>)</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>q_model <span class="op">=</span> qt.quantize(pretrained_resnet_34, dls)<span class="op">;</span> q_model</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>GraphModule(
+  (conv1): QuantizedConvReLU2d(3, 64, kernel_size=(7, 7), stride=(2, 2), scale=0.03916042298078537, zero_point=0, padding=(3, 3))
+  (maxpool): MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+  (layer1): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.034414783120155334, zero_point=135, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.10346762835979462, zero_point=99, padding=(1, 1))
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.07803963869810104, zero_point=150, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.1477663815021515, zero_point=154, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.0938093438744545, zero_point=145, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.2231246680021286, zero_point=153, padding=(1, 1))
+    )
+  )
+  (layer2): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), scale=0.08568578958511353, zero_point=143, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.13219939172267914, zero_point=130, padding=(1, 1))
+      (downsample): Module(
+        (0): QuantizedConv2d(64, 128, kernel_size=(1, 1), stride=(2, 2), scale=0.12116639316082001, zero_point=132)
+      )
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.10290561616420746, zero_point=163, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.1333627998828888, zero_point=152, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.11892875283956528, zero_point=138, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.17234939336776733, zero_point=143, padding=(1, 1))
+    )
+    (3): Module(
+      (conv1): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.15155480802059174, zero_point=160, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.26260507106781006, zero_point=130, padding=(1, 1))
+    )
+  )
+  (layer3): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(128, 256, kernel_size=(3, 3), stride=(2, 2), scale=0.23813869059085846, zero_point=137, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.254102498292923, zero_point=109, padding=(1, 1))
+      (downsample): Module(
+        (0): QuantizedConv2d(128, 256, kernel_size=(1, 1), stride=(2, 2), scale=0.16449806094169617, zero_point=131)
+      )
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.255676805973053, zero_point=106, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.2000371366739273, zero_point=151, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.1978582888841629, zero_point=145, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.31975799798965454, zero_point=160, padding=(1, 1))
+    )
+    (3): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.15835610032081604, zero_point=147, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.32871541380882263, zero_point=148, padding=(1, 1))
+    )
+    (4): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.1602625995874405, zero_point=146, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.4190238118171692, zero_point=135, padding=(1, 1))
+    )
+    (5): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.15976759791374207, zero_point=153, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.6285133957862854, zero_point=168, padding=(1, 1))
+    )
+  )
+  (layer4): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(256, 512, kernel_size=(3, 3), stride=(2, 2), scale=0.17346984148025513, zero_point=145, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.15855780243873596, zero_point=167, padding=(1, 1))
+      (downsample): Module(
+        (0): QuantizedConv2d(256, 512, kernel_size=(1, 1), stride=(2, 2), scale=0.19657236337661743, zero_point=118)
+      )
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.12368176132440567, zero_point=157, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.1558169573545456, zero_point=164, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.14525258541107178, zero_point=171, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.27562740445137024, zero_point=161, padding=(1, 1))
+    )
+  )
+  (global_pool): Module(
+    (pool): AdaptiveAvgPool2d(output_size=1)
+    (flatten): Flatten(start_dim=1, end_dim=-1)
+  )
+  (fc): QuantizedLinear(in_features=512, out_features=1000, scale=0.6697565913200378, zero_point=104, qscheme=torch.per_channel_affine)
+)</code></pre>
+</div>
+</div>
+<div id="f010d1bc-4e90-4945-8815-398ea783f6b5" class="cell">
+<div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>x, _ <span class="op">=</span> dls.valid.one_batch()</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>model_prepared <span class="op">=</span> prepare_fx(model.<span class="bu">eval</span>(), qconfig_mapping, x)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="6a0d5dc6-aba4-4ccd-bb22-2a14b23ba364" class="cell">
+<div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>convert_fx(model_prepared)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>GraphModule(
+  (conv1): ConvReLU2d(
+    (0): Conv2d(3, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3))
+    (1): ReLU(inplace=True)
+  )
+  (maxpool): MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+  (layer1): Module(
+    (0): Module(
+      (conv1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+    (1): Module(
+      (conv1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+    (2): Module(
+      (conv1): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+  )
+  (layer2): Module(
+    (0): Module(
+      (conv1): Conv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (downsample): Module(
+        (0): Conv2d(64, 128, kernel_size=(1, 1), stride=(2, 2))
+      )
+      (act2): ReLU(inplace=True)
+    )
+    (1): Module(
+      (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+    (2): Module(
+      (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+    (3): Module(
+      (conv1): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+  )
+  (layer3): Module(
+    (0): Module(
+      (conv1): Conv2d(128, 256, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (downsample): Module(
+        (0): Conv2d(128, 256, kernel_size=(1, 1), stride=(2, 2))
+      )
+      (act2): ReLU(inplace=True)
+    )
+    (1): Module(
+      (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+    (2): Module(
+      (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+    (3): Module(
+      (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+    (4): Module(
+      (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+    (5): Module(
+      (conv1): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+  )
+  (layer4): Module(
+    (0): Module(
+      (conv1): Conv2d(256, 512, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (downsample): Module(
+        (0): Conv2d(256, 512, kernel_size=(1, 1), stride=(2, 2))
+      )
+      (act2): ReLU(inplace=True)
+    )
+    (1): Module(
+      (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+    (2): Module(
+      (conv1): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): Conv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+      (act2): ReLU(inplace=True)
+    )
+  )
+  (global_pool): Module(
+    (pool): AdaptiveAvgPool2d(output_size=1)
+    (flatten): Flatten(start_dim=1, end_dim=-1)
+  )
+  (fc): Linear(in_features=512, out_features=1000, bias=True)
+)</code></pre>
+</div>
+</div>
+<div id="df6257d5-4e4c-440f-83c2-dfffc5341a4e" class="cell">
+<div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> torch.quantization <span class="im">as</span> quant</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="6df5c239-edc0-4220-8ff1-8925a96755cf" class="cell">
+<div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> Quantizer:</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, activation_observer<span class="op">=</span>MinMaxObserver, </span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>                 weight_observer<span class="op">=</span>PerChannelMinMaxObserver,</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>                 activation_qtype<span class="op">=</span>torch.quint8, weight_qtype<span class="op">=</span>torch.qint8,</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>                 granularity<span class="op">=</span><span class="st">'channel'</span>):</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.activation_observer <span class="op">=</span> activation_observer</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.weight_observer <span class="op">=</span> weight_observer</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.activation_qtype <span class="op">=</span> activation_qtype</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.weight_qtype <span class="op">=</span> weight_qtype</span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.granularity <span class="op">=</span> granularity</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> prepare_qconfig(<span class="va">self</span>):</span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> <span class="va">self</span>.granularity <span class="op">==</span> <span class="st">'tensor'</span>:</span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a>            qconfig <span class="op">=</span> QConfig(</span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>                activation<span class="op">=</span><span class="va">self</span>.activation_observer.with_args(dtype<span class="op">=</span><span class="va">self</span>.activation_qtype),</span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a>                weight<span class="op">=</span><span class="va">self</span>.weight_observer.with_args(dtype<span class="op">=</span><span class="va">self</span>.weight_qtype)</span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a>            )</span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a>        <span class="cf">elif</span> <span class="va">self</span>.granularity <span class="op">==</span> <span class="st">'channel'</span>:</span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true" tabindex="-1"></a>            qconfig <span class="op">=</span> QConfig(</span>
+<span id="cb16-20"><a href="#cb16-20" aria-hidden="true" tabindex="-1"></a>                activation<span class="op">=</span><span class="va">self</span>.activation_observer.with_args(dtype<span class="op">=</span><span class="va">self</span>.activation_qtype),</span>
+<span id="cb16-21"><a href="#cb16-21" aria-hidden="true" tabindex="-1"></a>                weight<span class="op">=</span><span class="va">self</span>.weight_observer.with_args(dtype<span class="op">=</span><span class="va">self</span>.weight_qtype, qscheme<span class="op">=</span>torch.per_channel_symmetric)</span>
+<span id="cb16-22"><a href="#cb16-22" aria-hidden="true" tabindex="-1"></a>            )</span>
+<span id="cb16-23"><a href="#cb16-23" aria-hidden="true" tabindex="-1"></a>        <span class="cf">else</span>:</span>
+<span id="cb16-24"><a href="#cb16-24" aria-hidden="true" tabindex="-1"></a>            <span class="cf">raise</span> <span class="pp">ValueError</span>(<span class="st">"Granularity must be 'tensor' or 'channel'"</span>)</span>
+<span id="cb16-25"><a href="#cb16-25" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> qconfig</span>
+<span id="cb16-26"><a href="#cb16-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-27"><a href="#cb16-27" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> quantize(<span class="va">self</span>, model, calibration_dl):</span>
+<span id="cb16-28"><a href="#cb16-28" aria-hidden="true" tabindex="-1"></a>        qconfig <span class="op">=</span> <span class="va">self</span>.prepare_qconfig()</span>
+<span id="cb16-29"><a href="#cb16-29" aria-hidden="true" tabindex="-1"></a>        <span class="co">#qconfig_mapping = get_default_qconfig_mapping("x86")</span></span>
+<span id="cb16-30"><a href="#cb16-30" aria-hidden="true" tabindex="-1"></a>        qconfig_mapping <span class="op">=</span> QConfigMapping().set_global(qconfig)</span>
+<span id="cb16-31"><a href="#cb16-31" aria-hidden="true" tabindex="-1"></a>        <span class="co">#qconfig_mapping = qconfig_mapping.set_global(qconfig)</span></span>
+<span id="cb16-32"><a href="#cb16-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-33"><a href="#cb16-33" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb16-34"><a href="#cb16-34" aria-hidden="true" tabindex="-1"></a>        <span class="co">#qconfig = get_default_qconfig("x86")</span></span>
+<span id="cb16-35"><a href="#cb16-35" aria-hidden="true" tabindex="-1"></a>        <span class="co">#qconfig_mapping = QConfigMapping().set_global(qconfig)</span></span>
+<span id="cb16-36"><a href="#cb16-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-37"><a href="#cb16-37" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb16-38"><a href="#cb16-38" aria-hidden="true" tabindex="-1"></a>        <span class="co">#print(qconfig_mapping)</span></span>
+<span id="cb16-39"><a href="#cb16-39" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb16-40"><a href="#cb16-40" aria-hidden="true" tabindex="-1"></a>        x, _ <span class="op">=</span> calibration_dl.valid.one_batch()</span>
+<span id="cb16-41"><a href="#cb16-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-42"><a href="#cb16-42" aria-hidden="true" tabindex="-1"></a>        model_prepared <span class="op">=</span> quantize_fx.prepare_fx(model.<span class="bu">eval</span>(), qconfig_mapping, x)</span>
+<span id="cb16-43"><a href="#cb16-43" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb16-44"><a href="#cb16-44" aria-hidden="true" tabindex="-1"></a>        _ <span class="op">=</span> [model_prepared(xb.to(<span class="st">'cpu'</span>)) <span class="cf">for</span> xb, _ <span class="kw">in</span> calibration_dl.valid]</span>
+<span id="cb16-45"><a href="#cb16-45" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-46"><a href="#cb16-46" aria-hidden="true" tabindex="-1"></a>        model_quantized <span class="op">=</span> quantize_fx.convert_fx(model_prepared)</span>
+<span id="cb16-47"><a href="#cb16-47" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> model_quantized</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="b85a0126-f28f-4536-bae8-211f763b5ff5" class="cell">
+<div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> prepare_qconfig():</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>        qconfig <span class="op">=</span> quant.QConfig(</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>                activation<span class="op">=</span>HistogramObserver.with_args(reduce_range<span class="op">=</span><span class="va">True</span>, dtype<span class="op">=</span>torch.quint8),</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>                weight<span class="op">=</span>PerChannelMinMaxObserver.with_args(dtype<span class="op">=</span>torch.qint8, qscheme<span class="op">=</span>torch.per_channel_symmetric)</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>            )</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> qconfig</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="8d71238e-af40-4076-b425-9ba62c83e17d" class="cell">
+<div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>qconfig <span class="op">=</span> prepare_qconfig()</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>qconfig_mapping <span class="op">=</span> QConfigMapping().set_global(qconfig)</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(qconfig_mapping)</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> timm.create_model(<span class="st">'resnet34'</span>, pretrained<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>x, _ <span class="op">=</span> dls.valid.one_batch()</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>model_prepared <span class="op">=</span> quantize_fx.prepare_fx(model.<span class="bu">eval</span>(), qconfig_mapping, x)</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>_ <span class="op">=</span> [model_prepared(xb.to(<span class="st">'cpu'</span>)) <span class="cf">for</span> xb, _ <span class="kw">in</span> dls.valid]</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>model_quantized <span class="op">=</span> quantize_fx.convert_fx(model_prepared)<span class="op">;</span> model_quantized</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-error">
+<div class="ansi-escaped-output">
+<pre><span class="ansi-red-fg">---------------------------------------------------------------------------</span>
+<span class="ansi-red-fg">NameError</span>                                 Traceback (most recent call last)
+Cell <span class="ansi-green-fg">In[10], line 1</span>
+<span class="ansi-green-fg">----&gt; 1</span> qconfig <span style="color:rgb(98,98,98)">=</span> <span class="ansi-yellow-bg">prepare_qconfig</span>()
+<span class="ansi-green-fg ansi-bold">      2</span> qconfig_mapping <span style="color:rgb(98,98,98)">=</span> QConfigMapping()<span style="color:rgb(98,98,98)">.</span>set_global(qconfig)
+<span class="ansi-green-fg ansi-bold">      3</span> <span style="color:rgb(0,135,0)">print</span>(qconfig_mapping)
+
+<span class="ansi-red-fg">NameError</span>: name 'prepare_qconfig' is not defined</pre>
+</div>
+</div>
+</div>
+<div id="fd5ea17b-6aab-44cb-a420-08a32354d61b" class="cell">
+<div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>get_default_qconfig(<span class="st">"x86"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>QConfig(activation=functools.partial(&lt;class 'torch.ao.quantization.observer.HistogramObserver'&gt;, reduce_range=True){}, weight=functools.partial(&lt;class 'torch.ao.quantization.observer.PerChannelMinMaxObserver'&gt;, dtype=torch.qint8, qscheme=torch.per_channel_symmetric){})</code></pre>
+</div>
+</div>
+<div id="3dccc605-0b3f-4744-a6f4-19ccbdf26a30" class="cell">
+<div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="co">#qconfig = prepare_qconfig()</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="co">#qconfig_mapping = get_default_qconfig_mapping("x86")</span></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>qconfig <span class="op">=</span> get_default_qconfig(<span class="st">"x86"</span>)</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>qconfig_mapping <span class="op">=</span> QConfigMapping().set_global(qconfig)</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a><span class="co">#qconfig_mapping = qconfig_mapping.set_global(qconfig); </span></span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(qconfig_mapping)</span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> timm.create_model(<span class="st">'resnet34'</span>, pretrained<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>x, _ <span class="op">=</span> dls.valid.one_batch()</span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>model_prepared <span class="op">=</span> quantize_fx.prepare_fx(model.<span class="bu">eval</span>(), qconfig_mapping, x)</span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>_ <span class="op">=</span> [model_prepared(xb.to(<span class="st">'cpu'</span>)) <span class="cf">for</span> xb, _ <span class="kw">in</span> dls.valid]</span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>model_quantized <span class="op">=</span> quantize_fx.convert_fx(model_prepared)<span class="op">;</span> model_quantized</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>QConfigMapping (
+ global_qconfig
+  QConfig(activation=functools.partial(&lt;class 'torch.ao.quantization.observer.HistogramObserver'&gt;, reduce_range=True){}, weight=functools.partial(&lt;class 'torch.ao.quantization.observer.PerChannelMinMaxObserver'&gt;, dtype=torch.qint8, qscheme=torch.per_channel_symmetric){})
+ object_type_qconfigs
+  OrderedDict()
+ module_name_regex_qconfigs
+  OrderedDict()
+ module_name_qconfigs
+  OrderedDict()
+ module_name_object_type_order_qconfigs
+  OrderedDict()
+)</code></pre>
+</div>
+<div class="cell-output cell-output-display">
+<pre><code>GraphModule(
+  (conv1): QuantizedConvReLU2d(3, 64, kernel_size=(7, 7), stride=(2, 2), scale=0.0586698092520237, zero_point=0, padding=(3, 3))
+  (maxpool): MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+  (layer1): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.05712748318910599, zero_point=73, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.18472586572170258, zero_point=40, padding=(1, 1))
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.1304682344198227, zero_point=70, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.22737379372119904, zero_point=86, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.13824054598808289, zero_point=76, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.2884523868560791, zero_point=78, padding=(1, 1))
+    )
+  )
+  (layer2): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), scale=0.12035684287548065, zero_point=71, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.18092282116413116, zero_point=69, padding=(1, 1))
+      (downsample): Module(
+        (0): QuantizedConv2d(64, 128, kernel_size=(1, 1), stride=(2, 2), scale=0.1676047295331955, zero_point=65)
+      )
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.15122142434120178, zero_point=83, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.1486966460943222, zero_point=79, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.192796990275383, zero_point=77, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.2337365448474884, zero_point=84, padding=(1, 1))
+    )
+    (3): Module(
+      (conv1): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.1911012828350067, zero_point=90, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.31719857454299927, zero_point=65, padding=(1, 1))
+    )
+  )
+  (layer3): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(128, 256, kernel_size=(3, 3), stride=(2, 2), scale=0.3262193500995636, zero_point=75, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.3559166193008423, zero_point=58, padding=(1, 1))
+      (downsample): Module(
+        (0): QuantizedConv2d(128, 256, kernel_size=(1, 1), stride=(2, 2), scale=0.2244267761707306, zero_point=65)
+      )
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.3229292631149292, zero_point=70, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.2822004556655884, zero_point=77, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.23272879421710968, zero_point=89, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.37436699867248535, zero_point=73, padding=(1, 1))
+    )
+    (3): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.24542182683944702, zero_point=76, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.4782363772392273, zero_point=79, padding=(1, 1))
+    )
+    (4): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.22176529467105865, zero_point=79, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.5768976807594299, zero_point=78, padding=(1, 1))
+    )
+    (5): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.2168983519077301, zero_point=82, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.8886998891830444, zero_point=90, padding=(1, 1))
+    )
+  )
+  (layer4): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(256, 512, kernel_size=(3, 3), stride=(2, 2), scale=0.23399946093559265, zero_point=75, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.23325596749782562, zero_point=85, padding=(1, 1))
+      (downsample): Module(
+        (0): QuantizedConv2d(256, 512, kernel_size=(1, 1), stride=(2, 2), scale=0.34827449917793274, zero_point=59)
+      )
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.20107585191726685, zero_point=86, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.20108701288700104, zero_point=79, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.2110409289598465, zero_point=89, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.32835322618484497, zero_point=78, padding=(1, 1))
+    )
+  )
+  (global_pool): Module(
+    (pool): AdaptiveAvgPool2d(output_size=1)
+    (flatten): Flatten(start_dim=1, end_dim=-1)
+  )
+  (fc): QuantizedLinear(in_features=512, out_features=1000, scale=1.1136842966079712, zero_point=57, qscheme=torch.per_channel_affine)
+)</code></pre>
+</div>
+</div>
+<div id="c4930fa2-55d3-4c92-80db-910b14f414ae" class="cell">
+<div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>model_quantized(x.to(<span class="st">'cpu'</span>)).dtype</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>torch.float32</code></pre>
+</div>
+</div>
+<div id="639ef0db-9218-468b-a48a-0f6a9c1a121e" class="cell">
+<div class="sourceCode cell-code" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> Quantizer():</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, backend<span class="op">=</span><span class="st">"x86"</span>):</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.qconfig <span class="op">=</span> get_default_qconfig_mapping(backend)</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> quantize(<span class="va">self</span>, model, calibration_dl):</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>        x, _ <span class="op">=</span> calibration_dl.valid.one_batch()</span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>        model_prepared <span class="op">=</span> prepare_fx(model.<span class="bu">eval</span>(), <span class="va">self</span>.qconfig, x)</span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>        _ <span class="op">=</span> [model_prepared(xb.to(<span class="st">'cpu'</span>)) <span class="cf">for</span> xb, _ <span class="kw">in</span> calibration_dl.valid]</span>
+<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> convert_fx(model_prepared)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<hr>
+<p><a href="https://github.com/nathanhubens/fasterai/tree/master/blob/master/fasterai/quantize/quantizer.py#L16" target="_blank" style="float:right; font-size:smaller">source</a></p>
+<section id="quantizer" class="level3">
+<h3 class="anchored" data-anchor-id="quantizer">Quantizer</h3>
+<blockquote class="blockquote">
+<pre><code> Quantizer (activation_observer=&lt;class
+            'torch.ao.quantization.observer.MinMaxObserver'&gt;,
+            weight_observer=&lt;class
+            'torch.ao.quantization.observer.MinMaxObserver'&gt;,
+            activation_qtype=torch.qint8, weight_qtype=torch.quint8,
+            granularity='tensor')</code></pre>
+</blockquote>
+<p>Initialize self. See help(type(self)) for accurate signature.</p>
+<div id="17555b6f" class="cell">
+<div class="sourceCode cell-code" id="cb28"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>path <span class="op">=</span> untar_data(URLs.PETS)</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>files <span class="op">=</span> get_image_files(path<span class="op">/</span><span class="st">"images"</span>)</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> label_func(f): <span class="cf">return</span> f[<span class="dv">0</span>].isupper()</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>dls <span class="op">=</span> ImageDataLoaders.from_name_func(path, files, label_func, item_tfms<span class="op">=</span>Resize(<span class="dv">64</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="725555f3-8e68-436c-a076-388db67ab89e" class="cell">
+<div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> timm</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>pretrained_resnet_34 <span class="op">=</span> timm.create_model(<span class="st">'resnet34'</span>, pretrained<span class="op">=</span><span class="va">True</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="7ed2740e-0771-4eb6-9590-8ea42dc9385c" class="cell">
+<div class="sourceCode cell-code" id="cb30"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> Quantizer:</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, activation_observer<span class="op">=</span>MinMaxObserver, </span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>                 weight_observer<span class="op">=</span>PerChannelMinMaxObserver,</span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a>                 activation_qtype<span class="op">=</span>torch.quint8, weight_qtype<span class="op">=</span>torch.qint8,</span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>                 granularity<span class="op">=</span><span class="st">'channel'</span>):</span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.activation_observer <span class="op">=</span> activation_observer</span>
+<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.weight_observer <span class="op">=</span> weight_observer</span>
+<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.activation_qtype <span class="op">=</span> activation_qtype</span>
+<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.weight_qtype <span class="op">=</span> weight_qtype</span>
+<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.granularity <span class="op">=</span> granularity</span>
+<span id="cb30-11"><a href="#cb30-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-12"><a href="#cb30-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> prepare_qconfig(<span class="va">self</span>):</span>
+<span id="cb30-13"><a href="#cb30-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> <span class="va">self</span>.granularity <span class="op">==</span> <span class="st">'tensor'</span>:</span>
+<span id="cb30-14"><a href="#cb30-14" aria-hidden="true" tabindex="-1"></a>            qconfig <span class="op">=</span> QConfig(</span>
+<span id="cb30-15"><a href="#cb30-15" aria-hidden="true" tabindex="-1"></a>                activation<span class="op">=</span><span class="va">self</span>.activation_observer.with_args(dtype<span class="op">=</span><span class="va">self</span>.activation_qtype),</span>
+<span id="cb30-16"><a href="#cb30-16" aria-hidden="true" tabindex="-1"></a>                weight<span class="op">=</span><span class="va">self</span>.weight_observer.with_args(dtype<span class="op">=</span><span class="va">self</span>.weight_qtype)</span>
+<span id="cb30-17"><a href="#cb30-17" aria-hidden="true" tabindex="-1"></a>            )</span>
+<span id="cb30-18"><a href="#cb30-18" aria-hidden="true" tabindex="-1"></a>        <span class="cf">elif</span> <span class="va">self</span>.granularity <span class="op">==</span> <span class="st">'channel'</span>:</span>
+<span id="cb30-19"><a href="#cb30-19" aria-hidden="true" tabindex="-1"></a>            qconfig <span class="op">=</span> QConfig(</span>
+<span id="cb30-20"><a href="#cb30-20" aria-hidden="true" tabindex="-1"></a>                activation<span class="op">=</span><span class="va">self</span>.activation_observer.with_args(dtype<span class="op">=</span><span class="va">self</span>.activation_qtype),</span>
+<span id="cb30-21"><a href="#cb30-21" aria-hidden="true" tabindex="-1"></a>                weight<span class="op">=</span><span class="va">self</span>.weight_observer.with_args(dtype<span class="op">=</span><span class="va">self</span>.weight_qtype, qscheme<span class="op">=</span>torch.per_channel_symmetric)</span>
+<span id="cb30-22"><a href="#cb30-22" aria-hidden="true" tabindex="-1"></a>            )</span>
+<span id="cb30-23"><a href="#cb30-23" aria-hidden="true" tabindex="-1"></a>        <span class="cf">else</span>:</span>
+<span id="cb30-24"><a href="#cb30-24" aria-hidden="true" tabindex="-1"></a>            <span class="cf">raise</span> <span class="pp">ValueError</span>(<span class="st">"Granularity must be 'tensor' or 'channel'"</span>)</span>
+<span id="cb30-25"><a href="#cb30-25" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> qconfig</span>
+<span id="cb30-26"><a href="#cb30-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-27"><a href="#cb30-27" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> quantize(<span class="va">self</span>, model, calibration_dl):</span>
+<span id="cb30-28"><a href="#cb30-28" aria-hidden="true" tabindex="-1"></a>        qconfig <span class="op">=</span> <span class="va">self</span>.prepare_qconfig()</span>
+<span id="cb30-29"><a href="#cb30-29" aria-hidden="true" tabindex="-1"></a>        <span class="co">#qconfig_mapping = get_default_qconfig_mapping("x86")</span></span>
+<span id="cb30-30"><a href="#cb30-30" aria-hidden="true" tabindex="-1"></a>        qconfig_mapping <span class="op">=</span> QConfigMapping().set_global(qconfig)</span>
+<span id="cb30-31"><a href="#cb30-31" aria-hidden="true" tabindex="-1"></a>        <span class="co">#qconfig_mapping = qconfig_mapping.set_global(qconfig)</span></span>
+<span id="cb30-32"><a href="#cb30-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-33"><a href="#cb30-33" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(qconfig)</span>
+<span id="cb30-34"><a href="#cb30-34" aria-hidden="true" tabindex="-1"></a>        <span class="co">#qconfig = get_default_qconfig("x86")</span></span>
+<span id="cb30-35"><a href="#cb30-35" aria-hidden="true" tabindex="-1"></a>        <span class="co">#qconfig_mapping = QConfigMapping().set_global(qconfig)</span></span>
+<span id="cb30-36"><a href="#cb30-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-37"><a href="#cb30-37" aria-hidden="true" tabindex="-1"></a>        <span class="co">#print(qconfig_mapping)</span></span>
+<span id="cb30-38"><a href="#cb30-38" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb30-39"><a href="#cb30-39" aria-hidden="true" tabindex="-1"></a>        x, _ <span class="op">=</span> calibration_dl.valid.one_batch()</span>
+<span id="cb30-40"><a href="#cb30-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-41"><a href="#cb30-41" aria-hidden="true" tabindex="-1"></a>        model_prepared <span class="op">=</span> quantize_fx.prepare_fx(model.<span class="bu">eval</span>(), qconfig_mapping, x)</span>
+<span id="cb30-42"><a href="#cb30-42" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb30-43"><a href="#cb30-43" aria-hidden="true" tabindex="-1"></a>        _ <span class="op">=</span> [model_prepared(xb.to(<span class="st">'cpu'</span>)) <span class="cf">for</span> xb, _ <span class="kw">in</span> calibration_dl.valid]</span>
+<span id="cb30-44"><a href="#cb30-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-45"><a href="#cb30-45" aria-hidden="true" tabindex="-1"></a>        model_quantized <span class="op">=</span> quantize_fx.convert_fx(model_prepared)</span>
+<span id="cb30-46"><a href="#cb30-46" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> model_quantized</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="5f4986c5-06a3-445f-8bae-60659c658381" class="cell">
+<div class="sourceCode cell-code" id="cb31"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>qt <span class="op">=</span> Quantizer(granularity<span class="op">=</span><span class="st">'channel'</span>)</span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>q_model <span class="op">=</span> qt.quantize(pretrained_resnet_34, dls)<span class="op">;</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>QConfig(activation=functools.partial(&lt;class 'torch.ao.quantization.observer.MinMaxObserver'&gt;, dtype=torch.quint8){}, weight=functools.partial(&lt;class 'torch.ao.quantization.observer.PerChannelMinMaxObserver'&gt;, dtype=torch.qint8, qscheme=torch.per_channel_symmetric){})</code></pre>
+</div>
+</div>
+<div id="3109868d-b9d7-40b7-8fe2-1672f55a7a79" class="cell">
+<div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>qt <span class="op">=</span> Quantizer(granularity<span class="op">=</span><span class="st">'channel'</span>, weight_qtype<span class="op">=</span>torch.quint4x2)</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>q_model <span class="op">=</span> qt.quantize(pretrained_resnet_34, dls)<span class="op">;</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>QConfig(activation=functools.partial(&lt;class 'torch.ao.quantization.observer.MinMaxObserver'&gt;, dtype=torch.quint8){}, weight=functools.partial(&lt;class 'torch.ao.quantization.observer.PerChannelMinMaxObserver'&gt;, dtype=torch.quint4x2, qscheme=torch.per_channel_symmetric){})</code></pre>
+</div>
+</div>
+<div id="74add8e4-d73c-4ed4-9af2-54853c9c2fb6" class="cell">
+<div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>q_model.conv1[<span class="dv">0</span>].weight.dtype</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>torch.float32</code></pre>
+</div>
+</div>
+<div id="c4eac4a3-4cff-4705-ae7d-009f41620aa5" class="cell">
+<div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterbench.fasterbench.benchmark <span class="im">import</span> evaluate_cpu_speed, get_model_size, get_num_parameters</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="64d77e84-ac66-49b3-94e3-e414665153b6" class="cell">
+<div class="sourceCode cell-code" id="cb38"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a>x, y <span class="op">=</span> dls.one_batch()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="31b14be0-dfcd-42d2-95e0-1aeb0a224ddb" class="cell">
+<div class="sourceCode cell-code" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>evaluate_cpu_speed(q_model, x[<span class="dv">0</span>][<span class="va">None</span>])</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>(3.935255412943661, 0.5983745225580773, 254.11311212757525)</code></pre>
+</div>
+</div>
+<div id="f0f9a82a-35b5-49cf-802a-1d9b2be316dd" class="cell">
+<div class="sourceCode cell-code" id="cb41"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a>get_model_size(q_model)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>22049152</code></pre>
+</div>
+</div>
+<div id="3a9b4a0f-00d5-4955-a5b9-bc62f1d2a529" class="cell">
+<div class="sourceCode cell-code" id="cb43"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a>qt <span class="op">=</span> Quantizer()</span>
+<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a>q_model <span class="op">=</span> qt.quantize(pretrained_resnet_34, dls)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="c3cd31b4-a1c8-4f9d-bc43-2cfcdcd0c8a8" class="cell">
+<div class="sourceCode cell-code" id="cb44"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a>evaluate_cpu_speed(q_model, x[<span class="dv">0</span>][<span class="va">None</span>])</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>(3.9707702537998557, 0.736204133147707, 251.8403070646163)</code></pre>
+</div>
+</div>
+<div id="fc83dba9-1660-4fc7-b9c4-23732d8fb215" class="cell">
+<div class="sourceCode cell-code" id="cb46"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a>get_model_size(q_model)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>22049152</code></pre>
+</div>
+</div>
+<div id="46f27621-a675-47f7-bc67-14b3efd23020" class="cell">
+<div class="sourceCode cell-code" id="cb48"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a>q_model</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>GraphModule(
+  (conv1): QuantizedConvReLU2d(3, 64, kernel_size=(7, 7), stride=(2, 2), scale=0.06453105062246323, zero_point=0, padding=(3, 3))
+  (maxpool): MaxPool2d(kernel_size=3, stride=2, padding=1, dilation=1, ceil_mode=False)
+  (layer1): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.05736920237541199, zero_point=75, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.18261493742465973, zero_point=39, padding=(1, 1))
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.12924925982952118, zero_point=70, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.22187039256095886, zero_point=86, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.13476595282554626, zero_point=76, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), scale=0.2813999056816101, zero_point=81, padding=(1, 1))
+    )
+  )
+  (layer2): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(64, 128, kernel_size=(3, 3), stride=(2, 2), scale=0.11936634033918381, zero_point=71, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.18361914157867432, zero_point=69, padding=(1, 1))
+      (downsample): Module(
+        (0): QuantizedConv2d(64, 128, kernel_size=(1, 1), stride=(2, 2), scale=0.16687129437923431, zero_point=65)
+      )
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.14992748200893402, zero_point=82, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.16361048817634583, zero_point=82, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.1808769255876541, zero_point=79, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.223890021443367, zero_point=85, padding=(1, 1))
+    )
+    (3): Module(
+      (conv1): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.19685958325862885, zero_point=88, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(128, 128, kernel_size=(3, 3), stride=(1, 1), scale=0.30306756496429443, zero_point=66, padding=(1, 1))
+    )
+  )
+  (layer3): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(128, 256, kernel_size=(3, 3), stride=(2, 2), scale=0.30769994854927063, zero_point=78, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.40719595551490784, zero_point=62, padding=(1, 1))
+      (downsample): Module(
+        (0): QuantizedConv2d(128, 256, kernel_size=(1, 1), stride=(2, 2), scale=0.27714821696281433, zero_point=63)
+      )
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.41844698786735535, zero_point=67, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.29943159222602844, zero_point=75, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.24699273705482483, zero_point=86, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.3852277100086212, zero_point=77, padding=(1, 1))
+    )
+    (3): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.2186848223209381, zero_point=81, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.46547403931617737, zero_point=79, padding=(1, 1))
+    )
+    (4): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.22963787615299225, zero_point=76, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.5495781898498535, zero_point=78, padding=(1, 1))
+    )
+    (5): Module(
+      (conv1): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.22313174605369568, zero_point=82, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), scale=0.8671310544013977, zero_point=88, padding=(1, 1))
+    )
+  )
+  (layer4): Module(
+    (0): Module(
+      (conv1): QuantizedConv2d(256, 512, kernel_size=(3, 3), stride=(2, 2), scale=0.25325316190719604, zero_point=80, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.22629278898239136, zero_point=86, padding=(1, 1))
+      (downsample): Module(
+        (0): QuantizedConv2d(256, 512, kernel_size=(1, 1), stride=(2, 2), scale=0.2957249581813812, zero_point=57)
+      )
+    )
+    (1): Module(
+      (conv1): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.19104258716106415, zero_point=87, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.2017698585987091, zero_point=78, padding=(1, 1))
+    )
+    (2): Module(
+      (conv1): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.2077617049217224, zero_point=90, padding=(1, 1))
+      (drop_block): Identity()
+      (act1): ReLU(inplace=True)
+      (aa): Identity()
+      (conv2): QuantizedConv2d(512, 512, kernel_size=(3, 3), stride=(1, 1), scale=0.2862599194049835, zero_point=81, padding=(1, 1))
+    )
+  )
+  (global_pool): Module(
+    (pool): AdaptiveAvgPool2d(output_size=1)
+    (flatten): Flatten(start_dim=1, end_dim=-1)
+  )
+  (fc): QuantizedLinear(in_features=512, out_features=1000, scale=1.0799553394317627, zero_point=53, qscheme=torch.per_channel_affine)
+)</code></pre>
+</div>
+</div>
+<div id="dde7873c-25be-4159-b867-2910bb4a1e6d" class="cell">
+<div class="sourceCode cell-code" id="cb50"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a>q_model(x.cpu())</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>53.3 ms ± 2.2 ms per loop (mean ± std. dev. of 7 runs, 10 loops each)</code></pre>
+</div>
+</div>
+<div id="cfbdf35f-1734-40ec-9e1d-d5614e22f729" class="cell">
+<div class="sourceCode cell-code" id="cb52"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a>pretrained_resnet_34 <span class="op">=</span> timm.create_model(<span class="st">'resnet34'</span>, pretrained<span class="op">=</span><span class="va">True</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<div id="ce8d29af-fb90-427c-810a-fb1d88cb313a" class="cell">
+<div class="sourceCode cell-code" id="cb53"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb53-1"><a href="#cb53-1" aria-hidden="true" tabindex="-1"></a>pretrained_resnet_34(x.cpu())</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>75 ms ± 70.1 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)</code></pre>
+</div>
+</div>
+<div id="389838df-36c8-4d74-8ee1-d8136b7fdd41" class="cell">
+<div class="sourceCode cell-code" id="cb55"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a>q_model.conv1.weight().dtype</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-display">
+<pre><code>torch.qint8</code></pre>
+</div>
+</div>
+<div id="f8ec4eef-9baa-4cf0-9801-87f8d43b5d87" class="cell">
+<div class="sourceCode cell-code" id="cb57"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb57-1"><a href="#cb57-1" aria-hidden="true" tabindex="-1"></a>q_model.conv1.weight()[<span class="dv">0</span>].dtype</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-error">
+<div class="ansi-escaped-output">
+<pre><span class="ansi-red-fg">---------------------------------------------------------------------------</span>
+<span class="ansi-red-fg">AttributeError</span>                            Traceback (most recent call last)
+Cell <span class="ansi-green-fg">In[60], line 1</span>
+<span class="ansi-green-fg">----&gt; 1</span> <span class="ansi-yellow-bg">q_model</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">.</span><span class="ansi-yellow-bg">conv1</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">.</span><span class="ansi-yellow-bg">weight</span>()[<span style="color:rgb(98,98,98)">0</span>]<span style="color:rgb(98,98,98)">.</span>dtype
+
+File <span class="ansi-green-fg">~/miniconda3/envs/fasterai/lib/python3.9/site-packages/torch/nn/modules/module.py:1729</span>, in <span class="ansi-cyan-fg">Module.__getattr__</span><span class="ansi-blue-fg">(self, name)</span>
+<span class="ansi-green-fg ansi-bold">   1727</span>     <span style="font-weight:bold;color:rgb(0,135,0)">if</span> name <span style="font-weight:bold;color:rgb(175,0,255)">in</span> modules:
+<span class="ansi-green-fg ansi-bold">   1728</span>         <span style="font-weight:bold;color:rgb(0,135,0)">return</span> modules[name]
+<span class="ansi-green-fg">-&gt; 1729</span> <span style="font-weight:bold;color:rgb(0,135,0)">raise</span> <span style="font-weight:bold;color:rgb(215,95,95)">AttributeError</span>(<span style="color:rgb(175,0,0)">f</span><span style="color:rgb(175,0,0)">"</span><span style="color:rgb(175,0,0)">'</span><span style="font-weight:bold;color:rgb(175,95,135)">{</span><span style="color:rgb(0,135,0)">type</span>(<span style="color:rgb(0,135,0)">self</span>)<span style="color:rgb(98,98,98)">.</span><span style="color:rgb(0,0,135)">__name__</span><span style="font-weight:bold;color:rgb(175,95,135)">}</span><span style="color:rgb(175,0,0)">'</span><span style="color:rgb(175,0,0)"> object has no attribute </span><span style="color:rgb(175,0,0)">'</span><span style="font-weight:bold;color:rgb(175,95,135)">{</span>name<span style="font-weight:bold;color:rgb(175,95,135)">}</span><span style="color:rgb(175,0,0)">'</span><span style="color:rgb(175,0,0)">"</span>)
+
+<span class="ansi-red-fg">AttributeError</span>: 'ConvReLU2d' object has no attribute 'weight'</pre>
+</div>
+</div>
+</div>
+<div id="70457121" class="cell">
+<div class="sourceCode cell-code" id="cb58"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a><span class="co">#model = resnet18()</span></span>
+<span id="cb58-2"><a href="#cb58-2" aria-hidden="true" tabindex="-1"></a><span class="co">#model.fc = nn.Linear(512, 2)</span></span>
+<span id="cb58-3"><a href="#cb58-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb58-4"><a href="#cb58-4" aria-hidden="true" tabindex="-1"></a>qt <span class="op">=</span> Quantizer()</span>
+<span id="cb58-5"><a href="#cb58-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb58-6"><a href="#cb58-6" aria-hidden="true" tabindex="-1"></a>q_model <span class="op">=</span> qt.quantize(model, dls)<span class="op">;</span> q_model</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-error">
+<div class="ansi-escaped-output">
+<pre><span class="ansi-red-fg">---------------------------------------------------------------------------</span>
+<span class="ansi-red-fg">KeyboardInterrupt</span>                         Traceback (most recent call last)
+Cell <span class="ansi-green-fg">In[11], line 6</span>
+<span class="ansi-green-fg ansi-bold">      1</span> <span style="font-style:italic;color:rgb(95,135,135)">#model = resnet18()</span>
+<span class="ansi-green-fg ansi-bold">      2</span> <span style="font-style:italic;color:rgb(95,135,135)">#model.fc = nn.Linear(512, 2)</span>
+<span class="ansi-green-fg ansi-bold">      4</span> qt <span style="color:rgb(98,98,98)">=</span> Quantizer()
+<span class="ansi-green-fg">----&gt; 6</span> q_model <span style="color:rgb(98,98,98)">=</span> <span class="ansi-yellow-bg">qt</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">.</span><span class="ansi-yellow-bg">quantize</span><span class="ansi-yellow-bg">(</span><span class="ansi-yellow-bg">model</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span class="ansi-yellow-bg">dls</span><span class="ansi-yellow-bg">)</span>; q_model
+
+Cell <span class="ansi-green-fg">In[4], line 9</span>, in <span class="ansi-cyan-fg">Quantizer.quantize</span><span class="ansi-blue-fg">(self, model, calibration_dl)</span>
+<span class="ansi-green-fg ansi-bold">      7</span> x, _ <span style="color:rgb(98,98,98)">=</span> calibration_dl<span style="color:rgb(98,98,98)">.</span>valid<span style="color:rgb(98,98,98)">.</span>one_batch()
+<span class="ansi-green-fg ansi-bold">      8</span> model_prepared <span style="color:rgb(98,98,98)">=</span> prepare_fx(model<span style="color:rgb(98,98,98)">.</span>eval(), <span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>qconfig, x)
+<span class="ansi-green-fg">----&gt; 9</span> _ <span style="color:rgb(98,98,98)">=</span> [model_prepared(xb<span style="color:rgb(98,98,98)">.</span>to(<span style="color:rgb(175,0,0)">'</span><span style="color:rgb(175,0,0)">cpu</span><span style="color:rgb(175,0,0)">'</span>)) <span style="font-weight:bold;color:rgb(0,135,0)">for</span> xb, _ <span style="font-weight:bold;color:rgb(175,0,255)">in</span> calibration_dl<span style="color:rgb(98,98,98)">.</span>valid]
+<span class="ansi-green-fg ansi-bold">     11</span> <span style="font-weight:bold;color:rgb(0,135,0)">return</span> convert_fx(model_prepared)
+
+Cell <span class="ansi-green-fg">In[4], line 9</span>, in <span class="ansi-cyan-fg">&lt;listcomp&gt;</span><span class="ansi-blue-fg">(.0)</span>
+<span class="ansi-green-fg ansi-bold">      7</span> x, _ <span style="color:rgb(98,98,98)">=</span> calibration_dl<span style="color:rgb(98,98,98)">.</span>valid<span style="color:rgb(98,98,98)">.</span>one_batch()
+<span class="ansi-green-fg ansi-bold">      8</span> model_prepared <span style="color:rgb(98,98,98)">=</span> prepare_fx(model<span style="color:rgb(98,98,98)">.</span>eval(), <span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>qconfig, x)
+<span class="ansi-green-fg">----&gt; 9</span> _ <span style="color:rgb(98,98,98)">=</span> [<span class="ansi-yellow-bg">model_prepared</span><span class="ansi-yellow-bg">(</span><span class="ansi-yellow-bg">xb</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">.</span><span class="ansi-yellow-bg">to</span><span class="ansi-yellow-bg">(</span><span style="color:rgb(175,0,0)" class="ansi-yellow-bg">'</span><span style="color:rgb(175,0,0)" class="ansi-yellow-bg">cpu</span><span style="color:rgb(175,0,0)" class="ansi-yellow-bg">'</span><span class="ansi-yellow-bg">)</span><span class="ansi-yellow-bg">)</span> <span style="font-weight:bold;color:rgb(0,135,0)">for</span> xb, _ <span style="font-weight:bold;color:rgb(175,0,255)">in</span> calibration_dl<span style="color:rgb(98,98,98)">.</span>valid]
+<span class="ansi-green-fg ansi-bold">     11</span> <span style="font-weight:bold;color:rgb(0,135,0)">return</span> convert_fx(model_prepared)
+
+File <span class="ansi-green-fg">~/miniconda3/envs/fasterai/lib/python3.9/site-packages/torch/fx/graph_module.py:738</span>, in <span class="ansi-cyan-fg">GraphModule.recompile.&lt;locals&gt;.call_wrapped</span><span class="ansi-blue-fg">(self, *args, **kwargs)</span>
+<span class="ansi-green-fg ansi-bold">    737</span> <span style="font-weight:bold;color:rgb(0,135,0)">def</span> <span style="color:rgb(0,0,255)">call_wrapped</span>(<span style="color:rgb(0,135,0)">self</span>, <span style="color:rgb(98,98,98)">*</span>args, <span style="color:rgb(98,98,98)">*</span><span style="color:rgb(98,98,98)">*</span>kwargs):
+<span class="ansi-green-fg">--&gt; 738</span>     <span style="font-weight:bold;color:rgb(0,135,0)">return</span> <span style="color:rgb(0,135,0)" class="ansi-yellow-bg">self</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">.</span><span class="ansi-yellow-bg">_wrapped_call</span><span class="ansi-yellow-bg">(</span><span style="color:rgb(0,135,0)" class="ansi-yellow-bg">self</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">args</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">kwargs</span><span class="ansi-yellow-bg">)</span>
+
+File <span class="ansi-green-fg">~/miniconda3/envs/fasterai/lib/python3.9/site-packages/torch/fx/graph_module.py:304</span>, in <span class="ansi-cyan-fg">_WrappedCall.__call__</span><span class="ansi-blue-fg">(self, obj, *args, **kwargs)</span>
+<span class="ansi-green-fg ansi-bold">    302</span>         <span style="font-weight:bold;color:rgb(0,135,0)">return</span> <span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>cls_call(obj, <span style="color:rgb(98,98,98)">*</span>args, <span style="color:rgb(98,98,98)">*</span><span style="color:rgb(98,98,98)">*</span>kwargs)
+<span class="ansi-green-fg ansi-bold">    303</span>     <span style="font-weight:bold;color:rgb(0,135,0)">else</span>:
+<span class="ansi-green-fg">--&gt; 304</span>         <span style="font-weight:bold;color:rgb(0,135,0)">return</span> <span style="color:rgb(0,135,0)" class="ansi-yellow-bg">super</span><span class="ansi-yellow-bg">(</span><span style="color:rgb(0,135,0)" class="ansi-yellow-bg">self</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">.</span><span class="ansi-yellow-bg">cls</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span class="ansi-yellow-bg">obj</span><span class="ansi-yellow-bg">)</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">.</span><span style="color:rgb(0,0,255)" class="ansi-yellow-bg">__call__</span><span class="ansi-yellow-bg">(</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">args</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">kwargs</span><span class="ansi-yellow-bg">)</span>  <span style="font-style:italic;color:rgb(95,135,135)"># type: ignore[misc]</span>
+<span class="ansi-green-fg ansi-bold">    305</span> <span style="font-weight:bold;color:rgb(0,135,0)">except</span> <span style="font-weight:bold;color:rgb(215,95,95)">Exception</span> <span style="font-weight:bold;color:rgb(0,135,0)">as</span> e:
+<span class="ansi-green-fg ansi-bold">    306</span>     <span style="font-weight:bold;color:rgb(0,135,0)">assert</span> e<span style="color:rgb(98,98,98)">.</span>__traceback__
+
+File <span class="ansi-green-fg">~/miniconda3/envs/fasterai/lib/python3.9/site-packages/torch/nn/modules/module.py:1511</span>, in <span class="ansi-cyan-fg">Module._wrapped_call_impl</span><span class="ansi-blue-fg">(self, *args, **kwargs)</span>
+<span class="ansi-green-fg ansi-bold">   1509</span>     <span style="font-weight:bold;color:rgb(0,135,0)">return</span> <span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>_compiled_call_impl(<span style="color:rgb(98,98,98)">*</span>args, <span style="color:rgb(98,98,98)">*</span><span style="color:rgb(98,98,98)">*</span>kwargs)  <span style="font-style:italic;color:rgb(95,135,135)"># type: ignore[misc]</span>
+<span class="ansi-green-fg ansi-bold">   1510</span> <span style="font-weight:bold;color:rgb(0,135,0)">else</span>:
+<span class="ansi-green-fg">-&gt; 1511</span>     <span style="font-weight:bold;color:rgb(0,135,0)">return</span> <span style="color:rgb(0,135,0)" class="ansi-yellow-bg">self</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">.</span><span class="ansi-yellow-bg">_call_impl</span><span class="ansi-yellow-bg">(</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">args</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">kwargs</span><span class="ansi-yellow-bg">)</span>
+
+File <span class="ansi-green-fg">~/miniconda3/envs/fasterai/lib/python3.9/site-packages/torch/nn/modules/module.py:1520</span>, in <span class="ansi-cyan-fg">Module._call_impl</span><span class="ansi-blue-fg">(self, *args, **kwargs)</span>
+<span class="ansi-green-fg ansi-bold">   1515</span> <span style="font-style:italic;color:rgb(95,135,135)"># If we don't have any hooks, we want to skip the rest of the logic in</span>
+<span class="ansi-green-fg ansi-bold">   1516</span> <span style="font-style:italic;color:rgb(95,135,135)"># this function, and just call forward.</span>
+<span class="ansi-green-fg ansi-bold">   1517</span> <span style="font-weight:bold;color:rgb(0,135,0)">if</span> <span style="font-weight:bold;color:rgb(175,0,255)">not</span> (<span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>_backward_hooks <span style="font-weight:bold;color:rgb(175,0,255)">or</span> <span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>_backward_pre_hooks <span style="font-weight:bold;color:rgb(175,0,255)">or</span> <span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>_forward_hooks <span style="font-weight:bold;color:rgb(175,0,255)">or</span> <span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>_forward_pre_hooks
+<span class="ansi-green-fg ansi-bold">   1518</span>         <span style="font-weight:bold;color:rgb(175,0,255)">or</span> _global_backward_pre_hooks <span style="font-weight:bold;color:rgb(175,0,255)">or</span> _global_backward_hooks
+<span class="ansi-green-fg ansi-bold">   1519</span>         <span style="font-weight:bold;color:rgb(175,0,255)">or</span> _global_forward_hooks <span style="font-weight:bold;color:rgb(175,0,255)">or</span> _global_forward_pre_hooks):
+<span class="ansi-green-fg">-&gt; 1520</span>     <span style="font-weight:bold;color:rgb(0,135,0)">return</span> <span class="ansi-yellow-bg">forward_call</span><span class="ansi-yellow-bg">(</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">args</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">kwargs</span><span class="ansi-yellow-bg">)</span>
+<span class="ansi-green-fg ansi-bold">   1522</span> <span style="font-weight:bold;color:rgb(0,135,0)">try</span>:
+<span class="ansi-green-fg ansi-bold">   1523</span>     result <span style="color:rgb(98,98,98)">=</span> <span style="font-weight:bold;color:rgb(0,135,0)">None</span>
+
+File <span class="ansi-green-fg">&lt;eval_with_key&gt;.8:21</span>, in <span class="ansi-cyan-fg">forward</span><span class="ansi-blue-fg">(self, x)</span>
+<span class="ansi-green-fg ansi-bold">     19</span> layer1_1_conv2 <span style="color:rgb(98,98,98)">=</span> <span style="color:rgb(0,135,0)">getattr</span>(<span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>layer1, <span style="color:rgb(175,0,0)">"</span><span style="color:rgb(175,0,0)">1</span><span style="color:rgb(175,0,0)">"</span>)<span style="color:rgb(98,98,98)">.</span>conv2(activation_post_process_6);  activation_post_process_6 <span style="color:rgb(98,98,98)">=</span> <span style="font-weight:bold;color:rgb(0,135,0)">None</span>
+<span class="ansi-green-fg ansi-bold">     20</span> activation_post_process_7 <span style="color:rgb(98,98,98)">=</span> <span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>activation_post_process_7(layer1_1_conv2);  layer1_1_conv2 <span style="color:rgb(98,98,98)">=</span> <span style="font-weight:bold;color:rgb(0,135,0)">None</span>
+<span class="ansi-green-fg">---&gt; 21</span> add_1 <span style="color:rgb(98,98,98)">=</span> <span class="ansi-yellow-bg">activation_post_process_7</span><span class="ansi-yellow-bg"> </span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">+</span><span class="ansi-yellow-bg"> </span><span class="ansi-yellow-bg">activation_post_process_5</span>;  activation_post_process_7 <span style="color:rgb(98,98,98)">=</span> activation_post_process_5 <span style="color:rgb(98,98,98)">=</span> <span style="font-weight:bold;color:rgb(0,135,0)">None</span>
+<span class="ansi-green-fg ansi-bold">     22</span> layer1_1_relu_1 <span style="color:rgb(98,98,98)">=</span> <span style="color:rgb(0,135,0)">getattr</span>(<span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>layer1, <span style="color:rgb(175,0,0)">"</span><span style="color:rgb(175,0,0)">1</span><span style="color:rgb(175,0,0)">"</span>)<span style="color:rgb(98,98,98)">.</span>relu(add_1);  add_1 <span style="color:rgb(98,98,98)">=</span> <span style="font-weight:bold;color:rgb(0,135,0)">None</span>
+<span class="ansi-green-fg ansi-bold">     23</span> activation_post_process_8 <span style="color:rgb(98,98,98)">=</span> <span style="color:rgb(0,135,0)">self</span><span style="color:rgb(98,98,98)">.</span>activation_post_process_8(layer1_1_relu_1);  layer1_1_relu_1 <span style="color:rgb(98,98,98)">=</span> <span style="font-weight:bold;color:rgb(0,135,0)">None</span>
+
+File <span class="ansi-green-fg">~/miniconda3/envs/fasterai/lib/python3.9/site-packages/fastai/torch_core.py:382</span>, in <span class="ansi-cyan-fg">TensorBase.__torch_function__</span><span class="ansi-blue-fg">(cls, func, types, args, kwargs)</span>
+<span class="ansi-green-fg ansi-bold">    380</span> <span style="font-weight:bold;color:rgb(0,135,0)">if</span> <span style="color:rgb(0,135,0)">cls</span><span style="color:rgb(98,98,98)">.</span>debug <span style="font-weight:bold;color:rgb(175,0,255)">and</span> func<span style="color:rgb(98,98,98)">.</span><span style="color:rgb(0,0,135)">__name__</span> <span style="font-weight:bold;color:rgb(175,0,255)">not</span> <span style="font-weight:bold;color:rgb(175,0,255)">in</span> (<span style="color:rgb(175,0,0)">'</span><span style="color:rgb(175,0,0)">__str__</span><span style="color:rgb(175,0,0)">'</span>,<span style="color:rgb(175,0,0)">'</span><span style="color:rgb(175,0,0)">__repr__</span><span style="color:rgb(175,0,0)">'</span>): <span style="color:rgb(0,135,0)">print</span>(func, types, args, kwargs)
+<span class="ansi-green-fg ansi-bold">    381</span> <span style="font-weight:bold;color:rgb(0,135,0)">if</span> _torch_handled(args, <span style="color:rgb(0,135,0)">cls</span><span style="color:rgb(98,98,98)">.</span>_opt, func): types <span style="color:rgb(98,98,98)">=</span> (torch<span style="color:rgb(98,98,98)">.</span>Tensor,)
+<span class="ansi-green-fg">--&gt; 382</span> res <span style="color:rgb(98,98,98)">=</span> <span style="color:rgb(0,135,0)" class="ansi-yellow-bg">super</span><span class="ansi-yellow-bg">(</span><span class="ansi-yellow-bg">)</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">.</span><span class="ansi-yellow-bg">__torch_function__</span><span class="ansi-yellow-bg">(</span><span class="ansi-yellow-bg">func</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span class="ansi-yellow-bg">types</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span class="ansi-yellow-bg">args</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span class="ansi-yellow-bg">ifnone</span><span class="ansi-yellow-bg">(</span><span class="ansi-yellow-bg">kwargs</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span class="ansi-yellow-bg">{</span><span class="ansi-yellow-bg">}</span><span class="ansi-yellow-bg">)</span><span class="ansi-yellow-bg">)</span>
+<span class="ansi-green-fg ansi-bold">    383</span> dict_objs <span style="color:rgb(98,98,98)">=</span> _find_args(args) <span style="font-weight:bold;color:rgb(0,135,0)">if</span> args <span style="font-weight:bold;color:rgb(0,135,0)">else</span> _find_args(<span style="color:rgb(0,135,0)">list</span>(kwargs<span style="color:rgb(98,98,98)">.</span>values()))
+<span class="ansi-green-fg ansi-bold">    384</span> <span style="font-weight:bold;color:rgb(0,135,0)">if</span> <span style="color:rgb(0,135,0)">issubclass</span>(<span style="color:rgb(0,135,0)">type</span>(res),TensorBase) <span style="font-weight:bold;color:rgb(175,0,255)">and</span> dict_objs: res<span style="color:rgb(98,98,98)">.</span>set_meta(dict_objs[<span style="color:rgb(98,98,98)">0</span>],as_copy<span style="color:rgb(98,98,98)">=</span><span style="font-weight:bold;color:rgb(0,135,0)">True</span>)
+
+File <span class="ansi-green-fg">~/miniconda3/envs/fasterai/lib/python3.9/site-packages/torch/_tensor.py:1418</span>, in <span class="ansi-cyan-fg">Tensor.__torch_function__</span><span class="ansi-blue-fg">(cls, func, types, args, kwargs)</span>
+<span class="ansi-green-fg ansi-bold">   1415</span>     <span style="font-weight:bold;color:rgb(0,135,0)">return</span> <span style="color:rgb(0,135,0)">NotImplemented</span>
+<span class="ansi-green-fg ansi-bold">   1417</span> <span style="font-weight:bold;color:rgb(0,135,0)">with</span> _C<span style="color:rgb(98,98,98)">.</span>DisableTorchFunctionSubclass():
+<span class="ansi-green-fg">-&gt; 1418</span>     ret <span style="color:rgb(98,98,98)">=</span> <span class="ansi-yellow-bg">func</span><span class="ansi-yellow-bg">(</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">args</span><span class="ansi-yellow-bg">,</span><span class="ansi-yellow-bg"> </span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span style="color:rgb(98,98,98)" class="ansi-yellow-bg">*</span><span class="ansi-yellow-bg">kwargs</span><span class="ansi-yellow-bg">)</span>
+<span class="ansi-green-fg ansi-bold">   1419</span>     <span style="font-weight:bold;color:rgb(0,135,0)">if</span> func <span style="font-weight:bold;color:rgb(175,0,255)">in</span> get_default_nowrap_functions():
+<span class="ansi-green-fg ansi-bold">   1420</span>         <span style="font-weight:bold;color:rgb(0,135,0)">return</span> ret
+
+<span class="ansi-red-fg">KeyboardInterrupt</span>: </pre>
+</div>
+</div>
+</div>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+window.document.addEventListener("DOMContentLoaded", function (event) {
+  const toggleBodyColorMode = (bsSheetEl) => {
+    const mode = bsSheetEl.getAttribute("data-mode");
+    const bodyEl = window.document.querySelector("body");
+    if (mode === "dark") {
+      bodyEl.classList.add("quarto-dark");
+      bodyEl.classList.remove("quarto-light");
+    } else {
+      bodyEl.classList.add("quarto-light");
+      bodyEl.classList.remove("quarto-dark");
+    }
+  }
+  const toggleBodyColorPrimary = () => {
+    const bsSheetEl = window.document.querySelector("link#quarto-bootstrap");
+    if (bsSheetEl) {
+      toggleBodyColorMode(bsSheetEl);
+    }
+  }
+  toggleBodyColorPrimary();  
+  const disableStylesheet = (stylesheets) => {
+    for (let i=0; i < stylesheets.length; i++) {
+      const stylesheet = stylesheets[i];
+      stylesheet.rel = 'prefetch';
+    }
+  }
+  const enableStylesheet = (stylesheets) => {
+    for (let i=0; i < stylesheets.length; i++) {
+      const stylesheet = stylesheets[i];
+      stylesheet.rel = 'stylesheet';
+    }
+  }
+  const manageTransitions = (selector, allowTransitions) => {
+    const els = window.document.querySelectorAll(selector);
+    for (let i=0; i < els.length; i++) {
+      const el = els[i];
+      if (allowTransitions) {
+        el.classList.remove('notransition');
+      } else {
+        el.classList.add('notransition');
+      }
+    }
+  }
+  const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+    const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+    const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+    let newTheme = '';
+    if(darkModeDefault) {
+      newTheme = isAlternate ? baseTheme : alternateTheme;
+    } else {
+      newTheme = isAlternate ? alternateTheme : baseTheme;
+    }
+    const changeGiscusTheme = () => {
+      // From: https://github.com/giscus/giscus/issues/336
+      const sendMessage = (message) => {
+        const iframe = document.querySelector('iframe.giscus-frame');
+        if (!iframe) return;
+        iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+      }
+      sendMessage({
+        setConfig: {
+          theme: newTheme
+        }
+      });
+    }
+    const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+    if (isGiscussLoaded) {
+      changeGiscusTheme();
+    }
+  }
+  const toggleColorMode = (alternate) => {
+    // Switch the stylesheets
+    const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+    manageTransitions('#quarto-margin-sidebar .nav-link', false);
+    if (alternate) {
+      enableStylesheet(alternateStylesheets);
+      for (const sheetNode of alternateStylesheets) {
+        if (sheetNode.id === "quarto-bootstrap") {
+          toggleBodyColorMode(sheetNode);
+        }
+      }
+    } else {
+      disableStylesheet(alternateStylesheets);
+      toggleBodyColorPrimary();
+    }
+    manageTransitions('#quarto-margin-sidebar .nav-link', true);
+    // Switch the toggles
+    const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+    for (let i=0; i < toggles.length; i++) {
+      const toggle = toggles[i];
+      if (toggle) {
+        if (alternate) {
+          toggle.classList.add("alternate");     
+        } else {
+          toggle.classList.remove("alternate");
+        }
+      }
+    }
+    // Hack to workaround the fact that safari doesn't
+    // properly recolor the scrollbar when toggling (#1455)
+    if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+      manageTransitions("body", false);
+      window.scrollTo(0, 1);
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        manageTransitions("body", true);
+      }, 40);  
+    }
+  }
+  const isFileUrl = () => { 
+    return window.location.protocol === 'file:';
+  }
+  const hasAlternateSentinel = () => {  
+    let styleSentinel = getColorSchemeSentinel();
+    if (styleSentinel !== null) {
+      return styleSentinel === "alternate";
+    } else {
+      return false;
+    }
+  }
+  const setStyleSentinel = (alternate) => {
+    const value = alternate ? "alternate" : "default";
+    if (!isFileUrl()) {
+      window.localStorage.setItem("quarto-color-scheme", value);
+    } else {
+      localAlternateSentinel = value;
+    }
+  }
+  const getColorSchemeSentinel = () => {
+    if (!isFileUrl()) {
+      const storageValue = window.localStorage.getItem("quarto-color-scheme");
+      return storageValue != null ? storageValue : localAlternateSentinel;
+    } else {
+      return localAlternateSentinel;
+    }
+  }
+  const darkModeDefault = true;
+  let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+  // Dark / light mode switch
+  window.quartoToggleColorScheme = () => {
+    // Read the current dark / light value 
+    let toAlternate = !hasAlternateSentinel();
+    toggleColorMode(toAlternate);
+    setStyleSentinel(toAlternate);
+    toggleGiscusIfUsed(toAlternate, darkModeDefault);
+  };
+  // Ensure there is a toggle, if there isn't float one in the top right
+  if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+    const a = window.document.createElement('a');
+    a.classList.add('top-right');
+    a.classList.add('quarto-color-scheme-toggle');
+    a.href = "";
+    a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+    const i = window.document.createElement("i");
+    i.classList.add('bi');
+    a.appendChild(i);
+    window.document.body.appendChild(a);
+  }
+  // Switch to dark mode if need be
+  if (hasAlternateSentinel()) {
+    toggleColorMode(true);
+  } else {
+    toggleColorMode(false);
+  }
+  const icon = "";
+  const anchorJS = new window.AnchorJS();
+  anchorJS.options = {
+    placement: 'right',
+    icon: icon
+  };
+  anchorJS.add('.anchored');
+  const isCodeAnnotation = (el) => {
+    for (const clz of el.classList) {
+      if (clz.startsWith('code-annotation-')) {                     
+        return true;
+      }
+    }
+    return false;
+  }
+  const onCopySuccess = function(e) {
+    // button target
+    const button = e.trigger;
+    // don't keep focus
+    button.blur();
+    // flash "checked"
+    button.classList.add('code-copy-button-checked');
+    var currentTitle = button.getAttribute("title");
+    button.setAttribute("title", "Copied!");
+    let tooltip;
+    if (window.bootstrap) {
+      button.setAttribute("data-bs-toggle", "tooltip");
+      button.setAttribute("data-bs-placement", "left");
+      button.setAttribute("data-bs-title", "Copied!");
+      tooltip = new bootstrap.Tooltip(button, 
+        { trigger: "manual", 
+          customClass: "code-copy-button-tooltip",
+          offset: [0, -8]});
+      tooltip.show();    
+    }
+    setTimeout(function() {
+      if (tooltip) {
+        tooltip.hide();
+        button.removeAttribute("data-bs-title");
+        button.removeAttribute("data-bs-toggle");
+        button.removeAttribute("data-bs-placement");
+      }
+      button.setAttribute("title", currentTitle);
+      button.classList.remove('code-copy-button-checked');
+    }, 1000);
+    // clear code selection
+    e.clearSelection();
+  }
+  const getTextToCopy = function(trigger) {
+      const codeEl = trigger.previousElementSibling.cloneNode(true);
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+  }
+  const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+    text: getTextToCopy
+  });
+  clipboard.on('success', onCopySuccess);
+  if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+    const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+      text: getTextToCopy,
+      container: window.document.getElementById('quarto-embedded-source-code-modal')
+    });
+    clipboardModal.on('success', onCopySuccess);
+  }
+    var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+    var mailtoRegex = new RegExp(/^mailto:/);
+      var filterRegex = new RegExp("https:\/\/FasterAI-Labs\.github\.io\/fasterai\/");
+    var isInternal = (href) => {
+        return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+    }
+    // Inspect non-navigation links and adorn them if external
+ 	var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+    for (var i=0; i<links.length; i++) {
+      const link = links[i];
+      if (!isInternal(link.href)) {
+        // undo the damage that might have been done by quarto-nav.js in the case of
+        // links that we want to consider external
+        if (link.dataset.originalHref !== undefined) {
+          link.href = link.dataset.originalHref;
+        }
+      }
+    }
+  function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+    const config = {
+      allowHTML: true,
+      maxWidth: 500,
+      delay: 100,
+      arrow: false,
+      appendTo: function(el) {
+          return el.parentElement;
+      },
+      interactive: true,
+      interactiveBorder: 10,
+      theme: 'quarto',
+      placement: 'bottom-start',
+    };
+    if (contentFn) {
+      config.content = contentFn;
+    }
+    if (onTriggerFn) {
+      config.onTrigger = onTriggerFn;
+    }
+    if (onUntriggerFn) {
+      config.onUntrigger = onUntriggerFn;
+    }
+    window.tippy(el, config); 
+  }
+  const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+  for (var i=0; i<noterefs.length; i++) {
+    const ref = noterefs[i];
+    tippyHover(ref, function() {
+      // use id or data attribute instead here
+      let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+      try { href = new URL(href).hash; } catch {}
+      const id = href.replace(/^#\/?/, "");
+      const note = window.document.getElementById(id);
+      if (note) {
+        return note.innerHTML;
+      } else {
+        return "";
+      }
+    });
+  }
+  const xrefs = window.document.querySelectorAll('a.quarto-xref');
+  const processXRef = (id, note) => {
+    // Strip column container classes
+    const stripColumnClz = (el) => {
+      el.classList.remove("page-full", "page-columns");
+      if (el.children) {
+        for (const child of el.children) {
+          stripColumnClz(child);
+        }
+      }
+    }
+    stripColumnClz(note)
+    if (id === null || id.startsWith('sec-')) {
+      // Special case sections, only their first couple elements
+      const container = document.createElement("div");
+      if (note.children && note.children.length > 2) {
+        container.appendChild(note.children[0].cloneNode(true));
+        for (let i = 1; i < note.children.length; i++) {
+          const child = note.children[i];
+          if (child.tagName === "P" && child.innerText === "") {
+            continue;
+          } else {
+            container.appendChild(child.cloneNode(true));
+            break;
+          }
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(container);
+        }
+        return container.innerHTML
+      } else {
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        return note.innerHTML;
+      }
+    } else {
+      // Remove any anchor links if they are present
+      const anchorLink = note.querySelector('a.anchorjs-link');
+      if (anchorLink) {
+        anchorLink.remove();
+      }
+      if (window.Quarto?.typesetMath) {
+        window.Quarto.typesetMath(note);
+      }
+      if (note.classList.contains("callout")) {
+        return note.outerHTML;
+      } else {
+        return note.innerHTML;
+      }
+    }
+  }
+  for (var i=0; i<xrefs.length; i++) {
+    const xref = xrefs[i];
+    tippyHover(xref, undefined, function(instance) {
+      instance.disable();
+      let url = xref.getAttribute('href');
+      let hash = undefined; 
+      if (url.startsWith('#')) {
+        hash = url;
+      } else {
+        try { hash = new URL(url).hash; } catch {}
+      }
+      if (hash) {
+        const id = hash.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note !== null) {
+          try {
+            const html = processXRef(id, note.cloneNode(true));
+            instance.setContent(html);
+          } finally {
+            instance.enable();
+            instance.show();
+          }
+        } else {
+          // See if we can fetch this
+          fetch(url.split('#')[0])
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.getElementById(id);
+            if (note !== null) {
+              const html = processXRef(id, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      } else {
+        // See if we can fetch a full url (with no hash to target)
+        // This is a special case and we should probably do some content thinning / targeting
+        fetch(url)
+        .then(res => res.text())
+        .then(html => {
+          const parser = new DOMParser();
+          const htmlDoc = parser.parseFromString(html, "text/html");
+          const note = htmlDoc.querySelector('main.content');
+          if (note !== null) {
+            // This should only happen for chapter cross references
+            // (since there is no id in the URL)
+            // remove the first header
+            if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+              note.children[0].remove();
+            }
+            const html = processXRef(null, note);
+            instance.setContent(html);
+          } 
+        }).finally(() => {
+          instance.enable();
+          instance.show();
+        });
+      }
+    }, function(instance) {
+    });
+  }
+      let selectedAnnoteEl;
+      const selectorForAnnotation = ( cell, annotation) => {
+        let cellAttr = 'data-code-cell="' + cell + '"';
+        let lineAttr = 'data-code-annotation="' +  annotation + '"';
+        const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+        return selector;
+      }
+      const selectCodeLines = (annoteEl) => {
+        const doc = window.document;
+        const targetCell = annoteEl.getAttribute("data-target-cell");
+        const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+        const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+        const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+        const lineIds = lines.map((line) => {
+          return targetCell + "-" + line;
+        })
+        let top = null;
+        let height = null;
+        let parent = null;
+        if (lineIds.length > 0) {
+            //compute the position of the single el (top and bottom and make a div)
+            const el = window.document.getElementById(lineIds[0]);
+            top = el.offsetTop;
+            height = el.offsetHeight;
+            parent = el.parentElement.parentElement;
+          if (lineIds.length > 1) {
+            const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+            const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+            height = bottom - top;
+          }
+          if (top !== null && height !== null && parent !== null) {
+            // cook up a div (if necessary) and position it 
+            let div = window.document.getElementById("code-annotation-line-highlight");
+            if (div === null) {
+              div = window.document.createElement("div");
+              div.setAttribute("id", "code-annotation-line-highlight");
+              div.style.position = 'absolute';
+              parent.appendChild(div);
+            }
+            div.style.top = top - 2 + "px";
+            div.style.height = height + 4 + "px";
+            div.style.left = 0;
+            let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+            if (gutterDiv === null) {
+              gutterDiv = window.document.createElement("div");
+              gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+              gutterDiv.style.position = 'absolute';
+              const codeCell = window.document.getElementById(targetCell);
+              const gutter = codeCell.querySelector('.code-annotation-gutter');
+              gutter.appendChild(gutterDiv);
+            }
+            gutterDiv.style.top = top - 2 + "px";
+            gutterDiv.style.height = height + 4 + "px";
+          }
+          selectedAnnoteEl = annoteEl;
+        }
+      };
+      const unselectCodeLines = () => {
+        const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+        elementsIds.forEach((elId) => {
+          const div = window.document.getElementById(elId);
+          if (div) {
+            div.remove();
+          }
+        });
+        selectedAnnoteEl = undefined;
+      };
+        // Handle positioning of the toggle
+    window.addEventListener(
+      "resize",
+      throttle(() => {
+        elRect = undefined;
+        if (selectedAnnoteEl) {
+          selectCodeLines(selectedAnnoteEl);
+        }
+      }, 10)
+    );
+    function throttle(fn, ms) {
+    let throttle = false;
+    let timer;
+      return (...args) => {
+        if(!throttle) { // first call gets through
+            fn.apply(this, args);
+            throttle = true;
+        } else { // all the others get throttled
+            if(timer) clearTimeout(timer); // cancel #2
+            timer = setTimeout(() => {
+              fn.apply(this, args);
+              timer = throttle = false;
+            }, ms);
+        }
+      };
+    }
+      // Attach click handler to the DT
+      const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+      for (const annoteDlNode of annoteDls) {
+        annoteDlNode.addEventListener('click', (event) => {
+          const clickedEl = event.target;
+          if (clickedEl !== selectedAnnoteEl) {
+            unselectCodeLines();
+            const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+            if (activeEl) {
+              activeEl.classList.remove('code-annotation-active');
+            }
+            selectCodeLines(clickedEl);
+            clickedEl.classList.add('code-annotation-active');
+          } else {
+            // Unselect the line
+            unselectCodeLines();
+            clickedEl.classList.remove('code-annotation-active');
+          }
+        });
+      }
+  const findCites = (el) => {
+    const parentEl = el.parentElement;
+    if (parentEl) {
+      const cites = parentEl.dataset.cites;
+      if (cites) {
+        return {
+          el,
+          cites: cites.split(' ')
+        };
+      } else {
+        return findCites(el.parentElement)
+      }
+    } else {
+      return undefined;
+    }
+  };
+  var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+  for (var i=0; i<bibliorefs.length; i++) {
+    const ref = bibliorefs[i];
+    const citeInfo = findCites(ref);
+    if (citeInfo) {
+      tippyHover(citeInfo.el, function() {
+        var popup = window.document.createElement('div');
+        citeInfo.cites.forEach(function(cite) {
+          var citeDiv = window.document.createElement('div');
+          citeDiv.classList.add('hanging-indent');
+          citeDiv.classList.add('csl-entry');
+          var biblioDiv = window.document.getElementById('ref-' + cite);
+          if (biblioDiv) {
+            citeDiv.innerHTML = biblioDiv.innerHTML;
+          }
+          popup.appendChild(citeDiv);
+        });
+        return popup.innerHTML;
+      });
+    }
+  }
+});
+</script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+      &nbsp;
+    </div>   
+    <div class="nav-footer-center">
+<p>© By Nathan Hubens</p>
+<div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/FasterAI-Labs/fasterai/tree/master/issues/new" class="toc-action"><i class="bi bi-github"></i>Report an issue</a></li></ul></div></div>
+    <div class="nav-footer-right">
+      &nbsp;
+    </div>
+  </div>
+</footer>
+
+
+
+
+</body></html>
