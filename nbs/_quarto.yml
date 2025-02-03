@@ -87,7 +87,7 @@ website:
         - prune/prune_callback.ipynb
       - section: Distill
         contents:
-        - distill/distill_callback.ipynb
+        - distill/distillation_callback.ipynb
       - section: Quantize
         contents:
         - quantize/quantizer.ipynb
