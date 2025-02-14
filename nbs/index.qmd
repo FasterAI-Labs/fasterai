@@ -5,7 +5,8 @@ page-layout: custom
 css: index.css
 section-divs: false
 toc: false
-description: Prune your neural networks
+description: FasterAI is an open-source library for neural network compression, offering efficient implementations of various compression techniques.
+image: imgs/logo.png
 ---
 
 ::: {.hero-banner}
