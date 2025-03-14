@@ -6,20 +6,297 @@ __all__ = ['Quantizer']
 # %% ../../nbs/quantize/quantizer.ipynb 2
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-from torch.ao.quantization import get_default_qconfig_mapping
+from fastcore.basics import store_attr
+from torch.ao.quantization import QConfig, get_default_qconfig_mapping, get_default_qat_qconfig_mapping
+from torch.ao.quantization.quantize_fx import prepare_fx, prepare_qat_fx, convert_fx
+from torch.ao.quantization.observer import MinMaxObserver, MovingAverageMinMaxObserver
+from torch.ao.quantization.fake_quantize import FakeQuantize
+from torch.quantization import quantize_dynamic
 import torch.ao.quantization.quantize_fx as quantize_fx
-from torch.ao.quantization.quantize_fx import convert_fx, prepare_fx
+from torch.ao.quantization.qconfig import default_dynamic_qconfig
+from typing import Optional, Dict, Any, Union
+import warnings
+import copy
+from tqdm import tqdm
 
-# %% ../../nbs/quantize/quantizer.ipynb 4
-class Quantizer():
-    def __init__(self, backend="x86"):
-        self.qconfig = get_default_qconfig_mapping(backend)
-    
-    def quantize(self, model, calibration_dl):
-        x, _ = calibration_dl.valid.one_batch()
-        model_prepared = prepare_fx(model.eval(), self.qconfig, x)
-        _ = [model_prepared(xb.to('cpu')) for xb, _ in calibration_dl.valid]
+# %% ../../nbs/quantize/quantizer.ipynb 3
+class Quantizer:
+    def __init__(self, 
+                 backend: str = "x86",                   # Target backend for quantization
+                 method: str = "static",                 # Quantization method: 'static', 'dynamic', or 'qat'
+                 qconfig_mapping: Optional[Dict] = None, # Optional custom quantization config
+                 custom_configs: Optional[Dict] = None,  # Custom module-specific configurations
+                 use_per_tensor: bool = False,           # Force per-tensor quantization
+                 verbose: bool = False                   # Enable verbose output
+                ):
+        """
+        Initialize a quantizer with specified backend and options.
+        """
+        store_attr()
+        
+        # Get the default config mapping for this backend
+        if qconfig_mapping is None:
+            if method == "qat":
+                self.qconfig_mapping = get_default_qat_qconfig_mapping(backend)
+            else:
+                self.qconfig_mapping = get_default_qconfig_mapping(backend)
+                
+            # If per-tensor quantization is enforced, update the global qconfig
+            if use_per_tensor:
+                self._update_qconfig_for_per_tensor()
+        else:
+            self.qconfig_mapping = qconfig_mapping
             
-        return convert_fx(model_prepared)
+        # Set PyTorch's quantization engine
+        torch.backends.quantized.engine = backend
+
+    def _update_qconfig_for_per_tensor(self):
+        """Replace per-channel with per-tensor quantization to avoid conversion issues"""
+        if self.verbose:
+            print("Using per-tensor quantization instead of per-channel")
+            
+        if self.method == "qat":            
+            weight_observer = MinMaxObserver.with_args(
+                dtype=torch.qint8,
+                qscheme=torch.per_tensor_symmetric,
+                quant_min=-128,
+                quant_max=127
+            )
+            
+            activation_observer = MovingAverageMinMaxObserver.with_args(
+                averaging_constant=0.01,
+                quant_min=0,
+                quant_max=255
+            )
+            
+            per_tensor_qconfig = QConfig(
+                activation=FakeQuantize.with_args(
+                    observer=activation_observer, 
+                    quant_min=0, 
+                    quant_max=255
+                ),
+                weight=FakeQuantize.with_args(
+                    observer=weight_observer, 
+                    quant_min=-128, 
+                    quant_max=127
+                )
+            )
+        else:
+            activation_observer = MinMaxObserver.with_args(
+                dtype=torch.quint8,
+                qscheme=torch.per_tensor_affine,
+                quant_min=0,
+                quant_max=255
+            )
+            
+            weight_observer = MinMaxObserver.with_args(
+                dtype=torch.qint8,
+                qscheme=torch.per_tensor_symmetric,
+                quant_min=-128,
+                quant_max=127
+            )
+            
+            per_tensor_qconfig = QConfig(
+                activation=activation_observer,
+                weight=weight_observer
+            )
+            
+        # Update global qconfig
+        self.qconfig_mapping.global_qconfig = per_tensor_qconfig
+
+    def _apply_custom_configs(self):
+        """Apply custom quantization configurations to specific modules"""
+        if not self.custom_configs:
+            return
+            
+        for module_name, config in self.custom_configs.items():
+            if self.verbose:
+                print(f"Setting custom config for {module_name}")
+            self.qconfig_mapping.set_module_name(module_name, config)
+    
+    def _prepare_model(self, 
+                       model: nn.Module, 
+                       example_inputs: Any
+                      ) -> nn.Module:
+        """Prepare model for quantization based on selected method"""
+        model = model.cpu()  # Move to CPU first for quantization
+        
+        if self.method == "qat":
+            model = model.train()  # QAT needs train mode
+        else:
+            model = model.eval()  # PTQ needs eval mode
+        
+        try:
+            if self.method == "static":
+                return prepare_fx(model, self.qconfig_mapping, example_inputs)
+            elif self.method == "dynamic":                
+                # Setup dynamic qconfig for supported modules
+                self.qconfig_mapping.set_object_type(torch.nn.Linear, default_dynamic_qconfig)
+                self.qconfig_mapping.set_object_type(torch.nn.LSTM, default_dynamic_qconfig)
+                self.qconfig_mapping.set_object_type(torch.nn.GRU, default_dynamic_qconfig)
+                self.qconfig_mapping.set_object_type(torch.nn.RNN, default_dynamic_qconfig)
+                
+                # Apply any custom module configs
+                if self.custom_configs:
+                    for module_name, config in self.custom_configs.items():
+                        self.qconfig_mapping.set_module_name(module_name, config)
+                
+                return prepare_fx(model, self.qconfig_mapping, example_inputs)
+            elif self.method == "qat":
+                return prepare_qat_fx(model, self.qconfig_mapping, example_inputs)
+            else:
+                raise ValueError(f"Unknown quantization method: {self.method}")
+        except Exception as e:
+            raise RuntimeError(f"Error preparing model for quantization: {e}")
+    
+    def _calibrate_model(self, 
+                        model: nn.Module, 
+                        dataloader: Any, 
+                        max_samples: Optional[int] = None, 
+                        device: Union[str, torch.device] = 'cpu'
+                       ) -> None:
+        """Calibrate the model"""
+        model.eval()
+        device = torch.device(device)
+        
+        # Move model to the specified device for calibration
+        orig_device = torch.device('cpu')
+        model = model.to(device)
+        
+        # Get dataset size from fastai dataloader
+        num_samples = getattr(dataloader, 'n', None)
+        
+        # Apply max samples limit if provided
+        if max_samples is not None and num_samples is not None:
+            num_samples = min(num_samples, max_samples)
+        
+        # Create progress bar if verbose
+        data_iter = dataloader if not self.verbose else tqdm(
+            dataloader, desc="Calibrating", total=num_samples//dataloader.bs if num_samples else None
+        )
+        
+        # Run calibration
+        samples_seen = 0
+        with torch.no_grad():
+            for i, batch in enumerate(data_iter):
+                # Get inputs from the batch
+                if isinstance(batch, (list, tuple)) and len(batch) >= 1:
+                    inputs = batch[0]
+                else:
+                    inputs = batch
+                
+                # Handle fastai's TensorImage type
+                if hasattr(inputs, 'data'):
+                    inputs = inputs.data
+                    
+                # Move inputs to the device
+                if isinstance(inputs, (list, tuple)):
+                    inputs = [x.to(device) if isinstance(x, torch.Tensor) else x for x in inputs]
+                else:
+                    inputs = inputs.to(device)
+                
+                # Forward pass for calibration
+                model(inputs)
+                
+                # Check if we've processed enough samples
+                batch_size = inputs.shape[0] if isinstance(inputs, torch.Tensor) else inputs[0].shape[0]
+                samples_seen += batch_size
+                if max_samples is not None and samples_seen >= max_samples:
+                    break
+        
+        # Move model back to original device
+        model = model.to(orig_device)
+    
+    def _quantize_dynamic(self, 
+                          model: nn.Module
+                         ):
+        """Quantize a model with dynamic quantization"""
+        try:
+            # Create a deep copy of the model for quantization
+            model_copy = copy.deepcopy(model).cpu().eval()
+            
+            # Attempt to quantize all compatible module types
+            qconfig_spec = {module_class for module_class in [nn.Linear, nn.LSTM, nn.GRU, nn.RNN]}
+            quantized_model = quantize_dynamic(
+                model_copy, 
+                qconfig_spec=qconfig_spec,
+                dtype=torch.qint8,
+                inplace=False
+            )
+            return quantized_model
+
+        except Exception as e:
+            print(f"Dynamic quantization failed with error: {e}")
+            return model
+        
+    def quantize(self, 
+                model: nn.Module,                        # Model to quantize
+                calibration_dl: Any,                     # Dataloader for calibration
+                max_calibration_samples: int = 100,      # Maximum number of samples to use for calibration
+                device: Union[str, torch.device] = 'cpu' # Device to use for calibration
+               ) -> nn.Module:
+        """
+        Quantize a model using the specified method and settings.
+        """
+        # For dynamic quantization, use a specialized approach
+        if self.method == "dynamic":
+            if self.verbose:
+                print(f"Performing dynamic quantization approach with {self.backend} backend")
+            
+            # Apply any custom configs
+            self._apply_custom_configs()
+            
+            # Use the dynamic quantization approach
+            return self._quantize_dynamic(model)
+        
+        # Apply any custom configs for static/QAT
+        self._apply_custom_configs()
+        
+        example_batch, _ = calibration_dl.one_batch()
+        
+        try:
+            # Prepare the model - prepare_fx and prepare_qat_fx will handle fusion automatically
+            if self.verbose:
+                print(f"Preparing model for {self.method} quantization with {self.backend} backend")
+            model_prepared = self._prepare_model(model, example_batch.cpu())
+            
+            # For static quantization, perform calibration
+            if self.method in ["static", "qat"]:
+                if self.verbose:
+                    print(f"Calibrating with up to {max_calibration_samples} samples")
+                self._calibrate_model(
+                    model_prepared, calibration_dl, 
+                    max_samples=max_calibration_samples, device=device
+                )
+            
+            # Convert the model to a quantized version - convert_fx will handle final fusion
+            if self.verbose:
+                print("Converting to quantized model")
+            
+            try:
+                quantized_model = convert_fx(model_prepared)
+            except RuntimeError as e:
+                if "Unsupported qscheme: per_channel_affine" in str(e) and not self.use_per_tensor:
+                    if self.verbose:
+                        print("Encountered per_channel_affine error, retrying with per-tensor quantization")
+                    # Try again with per-tensor quantization
+                    self.use_per_tensor = True
+                    self._update_qconfig_for_per_tensor()
+                    return self.quantize(
+                        model, calibration_dl, max_calibration_samples, device
+                    )
+                else:
+                    raise e
+            
+            if self.verbose:
+                print("Quantization complete")
+            
+            return quantized_model
+            
+        except Exception as e:
+            print(f"Error during quantization: {e}")
+            if self.verbose:
+                import traceback
+                traceback.print_exc()
+            # Return the original model if quantization fails
+            return model

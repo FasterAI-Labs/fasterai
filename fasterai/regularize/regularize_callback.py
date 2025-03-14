@@ -5,24 +5,71 @@ __all__ = ['RegularizeCallback']
 
 # %% ../../nbs/regularize/regularize_callback.ipynb 3
 from fastai.callback.all import *
-from fastcore.basics import store_attr
+from fastcore.basics import store_attr, listify
 from ..core.criteria import *
 from ..core.granularity import *
+from ..core.schedule import *
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Union, List, Optional, Type, Dict
 
 # %% ../../nbs/regularize/regularize_callback.ipynb 4
 class RegularizeCallback(Callback):
-    "Callback to apply grouped weight decay"
-    def __init__(self, g, wd=0.01, layer_type=nn.Conv2d):
+    def __init__(self, 
+                 criteria: Union[Criteria, List[Criteria]],            # Criteria(s) to use for regularization
+                 granularity: Union[str, List[str]],                   # Granularity level(s) for grouping
+                 weight: float = 0.01,                                 # Regularization weight
+                 layer_types: Union[Type, List[Type]] = nn.Conv2d,     # Layer types to apply regularization to
+                 schedule: Optional[Schedule] = None,                  # Optional schedule for regularization weight
+                 per_layer_weights: Optional[Dict[str, float]] = None, # Optional per-layer weights
+                 verbose: bool = False                                 # Whether to report regularization weight
+    ):
+        "Callback to apply regularization using criteria during training"
         store_attr()
-
+        self.criteria = listify(criteria)
+        self.granularity = listify(granularity)
+        self.layer_types = listify(layer_types)
+        self.per_layer_weights = per_layer_weights or {}
+        self.current_weight = weight
+        
+    def before_batch(self):
+        "Update regularization weight if scheduled"
+        if self.schedule is not None:
+            self.current_weight = self.schedule([self.weight], self.pct_train)[0]
+        
     def after_loss(self):
+        "Apply regularization after computing the main loss"
         reg = self.get_norm()
         self.learn.loss_grad += reg
         self.learn.loss = self.learn.loss_grad.clone()
-        
+            
     def get_norm(self):
-        return self.wd*torch.stack([large_final.f(m.weight)[None].sum(Granularities.get_dim(m, self.g)).sum() for m in self.learn.modules() if isinstance(m, self.layer_type)]).sum()
+        "Compute regularization using the specified criteria and granularities"
+        total_reg = 0.0
+        
+        for crit in self.criteria:
+            for g in self.granularity:
+                layer_regs = []
+                
+                for m in self.learn.model.modules():
+                    if any(isinstance(m, lt) for lt in self.layer_types) and hasattr(m, 'weight'):
+                        try:
+                            scores = crit.f(m.weight)[None].abs().sum(Granularities.get_dim(m, g))
+                            layer_reg = self.current_weight * scores.sum()
+                            layer_regs.append(layer_reg)
+                            
+                        except Exception as e:
+                            print(f"Error: {e}")
+                            continue
+                
+                if layer_regs:
+                    total_reg += torch.stack(layer_regs).sum()
+        
+        return total_reg
+    
+    def after_epoch(self):
+        "Report current regularization weight if verbose"
+        if self.verbose:
+            print(f"Current regularization weight: {self.current_weight:.6f}")
