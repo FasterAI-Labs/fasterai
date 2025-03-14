@@ -10,30 +10,47 @@ import matplotlib.pyplot as plt
 from fastcore.basics import *
 from fastai.callback.schedule import *
 import math
+from typing import List, Union, Callable, Optional, Tuple, Any
 
 # %% ../../nbs/core/schedules.ipynb 4
 class Schedule():
     "Base class to create schedules"
-    def __init__(self, sched_func, start_pct=0., end_pct=None, start_sparsity=0.):
+    def __init__(self, 
+                 sched_func: Callable,      # Function that computes sparsity at given training percentage
+                 start_pct: float = 0.,     # Percentage of training to start pruning
+                 end_pct: float = 1.,       # Percentage of training to end pruning (default: 1.0)
+                 start_sparsity: float = 0. # Initial sparsity level
+    ):
+        "Base class to create sparsity schedules for pruning"
         store_attr()
         self.current_sparsity, self.previous_sparsity = map(listify, [start_sparsity, start_sparsity])
-        if self.end_pct is None: self.end_pct=1.
         
-    def __call__(self, end_sparsity, pct_train):
-        if type(end_sparsity)!= 'list': end_sparsity = listify(end_sparsity)
-        if pct_train>=self.start_pct and pct_train <= self.end_pct: 
-            self.current_sparsity = [self.sched_func(self.start_sparsity, sp, (pct_train-self.start_pct)/(self.end_pct-self.start_pct)) for sp in end_sparsity]
+    def __call__(self, 
+                 end_sparsity: Union[float, List[float]], # Target sparsity level(s)
+                 pct_train: float                         # Current percentage of training complete
+    ) -> List[float]:
+        "Calculate current sparsity level based on training progress"
+        end_sparsity_list = listify(end_sparsity)
+        if pct_train >= self.start_pct and pct_train <= self.end_pct:
+            normalized_pct = (pct_train - self.start_pct) / (self.end_pct - self.start_pct)
+            self.current_sparsity = [self.sched_func(self.start_sparsity, sp, normalized_pct) for sp in end_sparsity_list]
         return self.current_sparsity
         
     @property
-    def pruned(self):
+    def pruned(self) -> bool:
+        "Check if sparsity level has changed since last update"
         return self.previous_sparsity!=self.current_sparsity
     
-    def after_pruned(self):
+    def after_pruned(self) -> None:
+        "Update previous sparsity after pruning is applied"
         self.previous_sparsity=self.current_sparsity
     
-    def plot(self, end_sparsity):
-        prune = np.linspace(0, 1, 1000)
+    def plot(self, 
+             end_sparsity: float,     # Target sparsity to visualize 
+             num_points: int = 1000  # Target sparsity to visualize 
+    ) -> None:
+        "Plot the sparsity schedule"
+        prune = np.linspace(0, 1, num_points)
         sps = [self([end_sparsity], p) for p in prune]
         fig, ax = plt.subplots(1, 1, figsize=(8,6), dpi=100)
         plt.plot(prune, sps, c='teal', linewidth=2)
@@ -41,7 +58,8 @@ class Schedule():
         plt.ylabel('sparsity')
         self.current_sparsity = self.previous_sparsity
     
-    def reset(self):
+    def reset(self) -> None:
+        "Reset schedule to initial state"
         self.current_sparsity, self.previous_sparsity = map(listify, [self.start_sparsity, self.start_sparsity])
 
     
@@ -52,35 +70,64 @@ class Schedule():
         ]
 
 # %% ../../nbs/core/schedules.ipynb 9
-def sched_oneshot(start, end, pos): return end
+def sched_oneshot(
+    start: float, # Starting sparsity level
+    end: float,   # Target sparsity level
+    pos: float    # Current position in schedule (0-1)
+) -> float:
+    "One-shot pruning: jump directly to target sparsity"
+    return end
 
 one_shot = Schedule(sched_oneshot, start_pct=0.5)
 
 # %% ../../nbs/core/schedules.ipynb 16
-def sched_iterative(start, end, pos, n_steps=3):
-    "Perform iterative pruning, and pruning in `n_steps` steps"
-    return start + ((end-start)/n_steps)*(np.ceil((pos)*n_steps))
+def sched_iterative(
+    start: float, # Starting sparsity level
+    end: float,   # Target sparsity level
+    pos: float,   # Current position in schedule (0-1)
+    n_steps: int = 3  # Number of pruning steps
+) -> float:
+    "Perform iterative pruning in discrete steps"
+    return start + ((end-start)/n_steps) * (np.ceil(pos * n_steps))
 
 iterative = Schedule(sched_iterative, start_pct=0.2)
 
 # %% ../../nbs/core/schedules.ipynb 27
-def sched_agp(start, end, pos): return end + (start - end) * (1 - pos)**3
+def sched_agp(
+    start: float, # Starting sparsity level
+    end: float,   # Target sparsity level
+    pos: float    # Current position in schedule (0-1)
+) -> float:
+    "Automated gradual pruning schedule with cubic decay"
+    return end + (start - end) * (1 - pos)**3
 
 agp = Schedule(sched_agp, start_pct=0.2)
 
 # %% ../../nbs/core/schedules.ipynb 32
-def sched_onecycle(start, end, pos, α=14, β=6):
+def sched_onecycle(
+    start: float,  # Starting sparsity level
+    end: float,    # Target sparsity level
+    pos: float,    # Current position in schedule (0-1)
+    α: float = 14, # Steepness parameter
+    β: float = 6   # Offset parameter
+) -> float:
+    "One-cycle schedule based on logistic function"
     out = (1+np.exp(-α+β)) / (1 + (np.exp((-α*pos)+β)))
     return start + (end-start)*out
 
 one_cycle = Schedule(sched_onecycle)
 
-# %% ../../nbs/core/schedules.ipynb 38
+# %% ../../nbs/core/schedules.ipynb 37
 cos = Schedule(sched_cos)
 lin = Schedule(sched_lin)
 
-# %% ../../nbs/core/schedules.ipynb 42
-def sched_dsd(start, end, pos):
+# %% ../../nbs/core/schedules.ipynb 43
+def sched_dsd(
+    start: float, # Starting sparsity level
+    end: float,   # Target sparsity level
+    pos: float    # Current position in schedule (0-1)
+) -> float:
+    "Dense-Sparse-Dense schedule: increase then decrease sparsity"
     if pos<0.5:
         return start + (1 + math.cos(math.pi*(1-pos*2))) * (end-start) / 2
     else:
@@ -88,7 +135,8 @@ def sched_dsd(start, end, pos):
     
 dsd = Schedule(sched_dsd)
 
-# %% ../../nbs/core/schedules.ipynb 46
+# %% ../../nbs/core/schedules.ipynb 47
 schedules = ('one_shot', 'iterative', 'agp', 'one_cycle', 'cos', 'lin', 'dsd')
-def available_schedules():
-    print(schedules)
+def available_schedules() -> List[str]:
+    "Return list of available pruning schedules"
+    return list(schedules)

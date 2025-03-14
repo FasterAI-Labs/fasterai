@@ -3,27 +3,99 @@
 # %% auto 0
 __all__ = ['QuantizeCallback']
 
-# %% ../../nbs/quantize/quantize_callback.ipynb 3
-import copy
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from fastai.vision.all import *
+# %% ../../nbs/quantize/quantize_callback.ipynb 2
 from fastai.callback.all import *
+from .all import *
+from torch.ao.quantization.quantize_fx import convert_fx
+import torch
+import copy
 
-from torch.ao.quantization import get_default_qat_qconfig_mapping
-import torch.ao.quantization.quantize_fx as quantize_fx
-from torch.ao.quantization.quantize_fx import convert_fx, prepare_fx
-
-# %% ../../nbs/quantize/quantize_callback.ipynb 5
+# %% ../../nbs/quantize/quantize_callback.ipynb 3
 class QuantizeCallback(Callback):
-    def __init__(self, qconfig_mapping=None, backend='x86'):
-        self.qconfig_mapping = qconfig_mapping or get_default_qat_qconfig_mapping(backend)
-
+    """
+    Simple callback for Quantization-Aware Training (QAT) in fastai.
+    Uses the Quantizer class for configuration and conversion.
+    """
+    def __init__(self, quantizer=None, backend='x86', use_per_tensor=False, verbose=False):
+        """
+        Initialize the QAT callback.
+        """
+        self.quantizer = quantizer
+        self.backend = backend
+        self.use_per_tensor = use_per_tensor
+        self.verbose = verbose
+        self.original_model = None
+    
     def before_fit(self):
-        example_inputs, _ = next(iter(self.dls.train))
-        self.learn.model = quantize_fx.prepare_qat_fx(self.learn.model, self.qconfig_mapping, example_inputs)
-
+        # Save original model
+        self.original_model = copy.deepcopy(self.learn.model)
+        
+        # Create quantizer if not provided
+        if self.quantizer is None:
+            self.quantizer = Quantizer(
+                backend=self.backend,
+                method="qat",
+                use_per_tensor=self.use_per_tensor,
+                verbose=self.verbose
+            )
+        
+        # Get example inputs
+        x, _ = self.learn.dls.one_batch()
+        original_device = next(self.learn.model.parameters()).device
+        
+        # Temporarily move to CPU for preparation
+        self.learn.model = self.learn.model.cpu()
+        
+        # Prepare model for QAT using the quantizer
+        try:
+            # First save the original state dict
+            orig_state_dict = self.learn.model.state_dict()
+            
+            # Use the _prepare_model method from the quantizer
+            prepared_model = self.quantizer._prepare_model(self.learn.model, x.cpu())
+            
+            # Move back to original device and update learner's model
+            self.learn.model = prepared_model.to(original_device)
+                
+            if self.verbose:
+                print("Model prepared for QAT successfully")
+                
+        except Exception as e:
+            print(f"Error preparing model for QAT: {e}")
+            import traceback
+            traceback.print_exc()
+            # Restore original model on error
+            self.learn.model = self.original_model.to(original_device)
+    
     def after_fit(self):
-        self.learn.model.eval()
-        self.learn.model = quantize_fx.convert_fx(self.learn.model.to('cpu'))
+        try:
+            if self.verbose:
+                print("Converting QAT model to fully quantized model")
+            
+            # Remember the original device
+            original_device = next(self.learn.model.parameters()).device
+            
+            # Set model to eval mode and move to CPU for conversion
+            self.learn.model = self.learn.model.cpu().eval()
+            
+            # Save a copy of the trained QAT model
+            self.qat_model = copy.deepcopy(self.learn.model)
+            
+            # Convert to quantized model
+            quantized_model = convert_fx(self.learn.model)
+            
+            # Save the quantized model
+            self.learn.quantized_model = quantized_model
+            
+            # Keep the quantized model as the active model
+            # This is crucial - the quantized model IS the trained model
+            self.learn.model = quantized_model
+                
+        except Exception as e:
+            print(f"Error converting QAT model: {e}")
+            traceback.print_exc()
+            
+            # If conversion fails, at least keep the QAT-trained model
+            if hasattr(self, 'qat_model'):
+                self.learn.model = self.qat_model.to(original_device)
+                print("Conversion failed, but QAT-trained model was kept")

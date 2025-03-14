@@ -16,52 +16,83 @@ from typing import Union
 
 # %% ../../nbs/distill/distillation_callback.ipynb 20
 class KnowledgeDistillationCallback(Callback):
-    def __init__(self, teacher, loss, activations_student=None, activations_teacher=None, weight=0.5):
+    def __init__(self, 
+                 teacher: nn.Module,                                           # Teacher model
+                 loss: Callable,                                               # Distillation loss function
+                 activations_student: Optional[Union[str, List[str]]] = None,  # Student activation layers to match
+                 activations_teacher: Optional[Union[str, List[str]]] = None,  # Teacher activation layers to match
+                 weight: float = 0.5                                           # Weight for distillation loss
+):
+        "Implement knowledge distillation from a teacher model to the student being trained"
         self.stored_activation_student, self.stored_activation_teacher  = {}, {}
         store_attr()
         if self.activations_student is not None:
             self.activations_student, self.activations_teacher = listify(activations_student), listify(activations_teacher)
         
     def before_fit(self):
+        "Setup hooks and prepare teacher before training"
         if self.activations_student and self.activations_teacher : self.register_hooks()
         self.teacher.eval()
 
+    def after_batch(self):
+        "Clear activations after each batch to prevent memory buildup"
+        self.stored_activation_student.clear()
+        self.stored_activation_teacher.clear()
+
     def after_loss(self):
+        "Apply distillation loss using teacher predictions"
         teacher_pred = self.teacher(self.x)
         new_loss = self.loss(pred=self.pred, teacher_pred=teacher_pred, fm_s=self.stored_activation_student, fm_t=self.stored_activation_teacher)
         self.learn.loss_grad = torch.lerp(self.learn.loss_grad, new_loss, self.weight)
         self.learn.loss = self.learn.loss_grad.clone()
     
     def register_hooks(self):
+        "Set up forward hooks to capture activations"
         self.handles_st, self.handles_t = {}, {}
         for name_st, name_t in zip(self.activations_student, self.activations_teacher):
             self.handles_st[name_st] = get_module_by_name(self.learn, name_st).register_forward_hook(self.get_activation(self.stored_activation_student, name_st))
             self.handles_t[name_t] = get_module_by_name(self.teacher, name_t).register_forward_hook(self.get_activation(self.stored_activation_teacher, name_t))
         
-    def get_activation(self, activation, name):
+    def get_activation(self, 
+                       activation: Dict[str, torch.Tensor],  # Dictionary to store activations
+                       name: str                            # Name of the layer
+        ):
+        "Create a hook function to store activations"
         def hook(model, input, output):
             activation[name] = output
         return hook
     
-    def find_hook(self, m):
+    def find_hook(self, 
+                  m: nn.Module
+    ) -> List[Tuple[str, int, str]]:
+        "Find all hooks registered in a module"
         save = []
         module_name = type(m).__name__
         for k, v in m._forward_hooks.items():
             save.append((module_name, k, v.__name__))
         return save
     
-    def remove_hooks(self, handles):
+    def remove_hooks(self, 
+                     handles: Dict[str, Any]
+    )-> None:
+        "Remove all registered hooks"
         for k, v in handles.items():
             handles[k].remove()
     
     def after_fit(self):
+        "Clean up hooks after training"
         if self.activations_student and self.activations_teacher:
             self.remove_hooks(self.handles_t)
             self.remove_hooks(self.handles_st)
 
 # %% ../../nbs/distill/distillation_callback.ipynb 22
-def get_model_layers(model, getLayerRepr=False):
+def get_model_layers(
+    model: nn.Module,             # Model to inspect
+    getLayerRepr: bool = False    # Whether to return layer representations
+) -> Union[List[str], Dict[str, str]]:
+    "Get all layer names in a model, optionally with their representations"
     layers = OrderedDict() if getLayerRepr else []
+    
     def get_layers(net, prefix=[]):
         if hasattr(net, "_modules"):
             for name, layer in net._modules.items():
@@ -77,31 +108,44 @@ def get_model_layers(model, getLayerRepr=False):
     return layers
 
 
-def get_module_by_name(module: Union[torch.Tensor, nn.Module],
-                       access_string: str):
 
-    names = access_string.split(sep='.')
-    return reduce(getattr, names, module)
+def get_module_by_name(
+    module: Union[torch.Tensor, nn.Module],  # Module to search in
+    access_string: str                       # Dot-separated path to the submodule
+) -> Optional[nn.Module]:
+    "Access a nested submodule by its name path"
+    try:
+        names = access_string.split(sep='.')
+        return reduce(getattr, names, module)
+    except AttributeError:
+        return None
 
 # %% ../../nbs/distill/distillation_callback.ipynb 24
 def SoftTarget(pred, teacher_pred, T=5, **kwargs):
+    "Knowledge distillation with softened distributions (Hinton et al.)"
     return nn.KLDivLoss(reduction='batchmean')(F.log_softmax(pred/T, dim=1), F.softmax(teacher_pred/T, dim=1)) * (T*T)
 
 def Logits(pred, teacher_pred, **kwargs):
+    "Direct logit matching between student and teacher"
     return F.mse_loss(pred, teacher_pred)
 
 def Mutual(pred, teacher_pred, **kwargs):
+    "KL divergence between student and teacher, with standard temperature"
     return nn.KLDivLoss(reduction='batchmean')(F.log_softmax(pred, dim=1), F.softmax(teacher_pred, dim=1))
 
 
 def Attention(fm_s, fm_t, p=2, **kwargs):
+    "Attention transfer loss between student and teacher (Zagoruyko & Komodakis)"
     return sum([F.mse_loss(F.normalize(fm_s[name_st].pow(p).mean(1),dim=(1,2)), F.normalize(fm_t[name_t].pow(p).mean(1),dim=(1,2))) for name_st, name_t in zip(fm_s, fm_t)])
 
 def ActivationBoundaries(fm_s, fm_t, m=2, **kwargs):
+    "Boundary-based knowledge distillation (Heo et al.)"
     return sum([((fm_s[name_st] + m).pow(2) * ((fm_s[name_st] > -m) & (fm_t[name_t] <= 0)).float() + (fm_s[name_st] - m).pow(2) * ((fm_s[name_st] <= m) & (fm_t[name_t] > 0)).float()).mean() for name_st, name_t in zip(fm_s, fm_t)])
 
 def FitNet(fm_s, fm_t, **kwargs):
+    "FitNets: direct feature map matching (Romero et al.)"
     return sum([F.mse_loss(fm_s[name_st],fm_t[name_t]) for name_st, name_t in zip(fm_s, fm_t)])
 
 def Similarity(fm_s, fm_t, pred, p=2, **kwargs):
+    "Similarity-preserving knowledge distillation (Tung & Mori)"
     return sum([F.mse_loss(F.normalize(fm_s[name_st].view(fm_s[name_st].size(0), -1) @ fm_s[name_st].view(fm_s[name_st].size(0), -1).t(), p=p, dim=1), F.normalize(fm_t[name_t].view(fm_t[name_t].size(0), -1) @ fm_t[name_t].view(fm_t[name_t].size(0), -1).t(), p=p, dim=1)) for name_st, name_t in zip(fm_s, fm_t)])

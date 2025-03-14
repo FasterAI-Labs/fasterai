@@ -10,18 +10,31 @@ import torch.nn as nn
 import pickle
 from itertools import cycle
 from fastcore.basics import store_attr, listify, true
+from typing import Callable, Optional, Union, List, Tuple, Type
 from ..core.criteria import *
 
 # %% ../../nbs/sparse/sparsifier.ipynb 5
 class Sparsifier():
     "Class providing sparsifying capabilities"
-    def __init__(self, model, granularity, context, criteria, nm=False, layer_type=nn.Conv2d):
-        if nm == True: print('Sparsity automatically set to 50%')
+    def __init__(self, 
+                 model: nn.Module,                        # The model to sparsify
+                 granularity: str,                        # Granularity of sparsification (e.g., 'weight', 'filter')
+                 context: str,                            # Context for sparsification ('global' or 'local')
+                 criteria: Criteria,                      # Criteria to determine which weights to keep
+                 nm: bool = False,                        # Whether to use N:M sparsity pattern (forces 2:4 sparsity)
+                 layer_type: Type[nn.Module] = nn.Conv2d  # Type of layers to apply sparsification to
+    ):
+        if nm == True: print('Sparsity automatically set to 50% with 2:4 pattern')
         store_attr()
-        self._save_weights() # Save the original weights
+        self._save_weights()
         self._reset_threshold()
 
-    def sparsify_layer(self, m, sparsity, round_to=None):
+    def sparsify_layer(self, 
+                       m: nn.Module,                   # The layer to sparsify
+                       sparsity: float,                # Target sparsity level (percentage)
+                       round_to: Optional[int] = None  # Round to a multiple of this value
+    ) -> None:
+        "Apply sparsification to a single layer"
         scores    = self._compute_scores(m, sparsity)
         threshold = self._compute_threshold(scores, sparsity, round_to)
         mask      = self._compute_mask(scores, threshold)
@@ -29,36 +42,51 @@ class Sparsifier():
         self._apply(m)
         self.criteria.update_weights(m)
 
-    def sparsify_model(self, sparsity, round_to=None):
+    def sparsify_model(self, 
+                       sparsity: Union[float, List[float]],  # Target sparsity level(s)
+                       round_to: Optional[int] = None        # Round to a multiple of this value
+    ) -> None:
+        "Apply sparsification to all matching layers in the model"
         self._reset_threshold()
         sparsity_list = listify(sparsity)
-        if len(sparsity_list)>1: assert self.context=='local', f"A list of sparsities cannot be passed using: {self.context}"
+        if len(sparsity_list) > 1 and self.context != 'local': raise ValueError(f"A list of sparsities can only be used with 'local' context, not {self.context}")
         sparsities = cycle(sparsity_list) if len(sparsity_list)==1 else iter(sparsity_list)
         mods = list(self.model.modules())
         for k,m in enumerate(self.model.modules()):
             if isinstance(m, self.layer_type): 
                 sp = next(sparsities)
                 self.sparsify_layer(m, sp, round_to)
-                if isinstance(mods[k+1], nn.modules.batchnorm._BatchNorm): self.sparsify_batchnorm(m, mods[k+1])
+                if k+1 < len(mods) and isinstance(mods[k+1], nn.modules.batchnorm._BatchNorm): self.sparsify_batchnorm(m, mods[k+1])
                 
-    def sparsify_batchnorm(self, m, bn):
+    def sparsify_batchnorm(self, 
+                          m: nn.Module,       # The layer before batch norm
+                          bn: nn.Module       # The batch norm layer
+    ) -> None:
+        "Apply filter pruning to batch norm parameters if appropriate"
         mask = getattr(m, "_mask", None)
         if self.granularity == 'filter' and true(mask):
             bn.weight.data.mul_(mask.squeeze())
             bn.bias.data.mul_(mask.squeeze())
             
-    def _apply_masks(self):
+    def _apply_masks(self) -> None:
+        "Apply all stored masks to model weights"
         for m in self.model.modules():
             if isinstance(m, self.layer_type):
                 self._apply(m)
         
-    def _apply(self, m):
+    def _apply(self, 
+              m: nn.Module  # Module to apply mask to
+    ) -> None:
+        "Apply mask to a module's weights"
         mask = getattr(m, "_mask", None)
         if true(mask): m.weight.data.mul_(mask)
         if self.granularity == 'filter' and true(m.bias):
-            if true(mask): m.bias.data.mul_(mask.squeeze()) # We want to sparsify the bias when pruning filters
+            if true(mask): m.bias.data.mul_(mask.squeeze())
     
-    def _reset_weights(self, model=None):
+    def _reset_weights(self, 
+                      model: Optional[nn.Module] = None  # Model to reset (default: self.model)
+    ) -> None:
+        "Reset weights to their initial values"
         model = model or self.model
         for m in model.modules():
             if hasattr(m, 'weight'):
@@ -70,21 +98,29 @@ class Sparsifier():
                 self._apply(m)
             if isinstance(m, nn.modules.batchnorm._BatchNorm): m.reset_parameters()
                 
-    def _save_weights(self):
+    def _save_weights(self) -> None:
+        "Save initial weights of the model"
         for m in self.model.modules():
             if hasattr(m, 'weight'):              
                 m.register_buffer("_init_weights", m.weight.clone())
                 bias = getattr(m, 'bias', None)
                 if true(bias): m.register_buffer("_init_biases", bias.clone())
                     
-    def save_model(self, path, model=None):
+    def save_model(self, 
+                  path: str,             # Path to save the model
+                  model: Optional[nn.Module] = None  # Model to save (default: self.model)
+    ) -> None:
+        "Save model without sparsification buffers"
         model = model or self.model
-        tmp_model = pickle.loads(pickle.dumps(model))
+        tmp_model = copy.deepcopy(model)
         self._reset_weights(tmp_model)
         self._clean_buffers(tmp_model)
         torch.save(tmp_model, path)
 
-    def _clean_buffers(self, model=None):
+    def _clean_buffers(self, 
+                      model: Optional[nn.Module] = None  # Model to clean (default: self.model)
+    ) -> None:
+        "Remove internal buffers used for sparsification"
         model = model or self.model
         for m in model.modules():
             if hasattr(m, 'weight'):
@@ -92,53 +128,89 @@ class Sparsifier():
                 if hasattr(m, '_init_weights'): del m._buffers["_init_weights"]
                 if hasattr(m, '_init_biases'): del m._buffers["_init_biases"]
                     
-    def _reset_threshold(self):
+    def _reset_threshold(self) -> None:
+        "Reset the threshold used for global pruning"
         self.threshold=None
             
-    def _rounded_sparsity(self, n_to_prune, round_to):
+    def _rounded_sparsity(self, 
+                         n_to_prune: int,  # Number of elements to prune
+                         round_to: int     # Rounding value
+    ) -> int:
+        "Round the number of elements to keep to a multiple of round_to"
         return max(round_to*torch.ceil(n_to_prune/round_to), round_to)
     
-    def _compute_scores(self, m, sparsity):
-        if self.context == 'global':
-            if self.threshold == None: 
-                global_scores  = torch.cat([self.criteria(m, self.granularity).view(-1) for m in self.model.modules() if isinstance(m, self.layer_type)])
-                self.threshold = torch.quantile(global_scores.view(-1), sparsity/100)
-            local_scores = self.criteria(m, self.granularity)
-        elif self.context == 'local': 
-            local_scores = self.criteria(m, self.granularity)
-            self.threshold = torch.quantile(local_scores.view(-1), sparsity/100)
-        else: raise NameError('Invalid Context')
-        return local_scores
+    def _compute_scores(self, 
+                       m: nn.Module,  # Module to compute scores for
+                       sparsity: float # Target sparsity level
+    ) -> torch.Tensor:
+        "Compute importance scores for weights based on criteria"
+        return self.criteria(m, self.granularity)
                 
-    def _compute_threshold(self, scores, sparsity, round_to):
+    def _compute_threshold(self, 
+                          scores: torch.Tensor,  # Importance scores
+                          sparsity: float,       # Target sparsity level
+                          round_to: Optional[int] # Rounding value
+    ) -> torch.Tensor:
+        "Compute threshold for pruning, with optional rounding"
+        if self.context == 'global':
+            if self.threshold is None: 
+                global_scores  = torch.cat([self.criteria(m, self.granularity).view(-1) for m in self.model.modules() if isinstance(m, self.layer_type)])
+                self.threshold = torch.quantile(global_scores.view(-1), sparsity/100)   
+        elif self.context == 'local': 
+            self.threshold = torch.quantile(scores.view(-1), sparsity/100)
+        else: raise ValueError(f'Invalid context: {self.context}. Must be "global" or "local"')
+            
         if round_to:
             n_to_keep = sum(scores.ge(self.threshold)).squeeze()
             self.threshold = torch.topk(scores.squeeze(), int(self._rounded_sparsity(n_to_keep, round_to)))[0].min()
         return self.threshold
     
-    def _compute_mask(self, scores, threshold):
+    def _compute_mask(self, 
+                     scores: torch.Tensor,  # Importance scores
+                     threshold: torch.Tensor # Threshold for pruning
+    ) -> torch.Tensor:
+        "Compute binary mask for weights based on scores and threshold"
         if self.nm == True: return self.apply_nm_sparsity(scores)
         if threshold > scores.max(): threshold = scores.max() # Make sure we don't remove every weight of a given layer
         return scores.ge(threshold).to(dtype=scores.dtype)
-    
-    def print_sparsity(self):
-        for k,m in enumerate(self.model.modules()):
-            if isinstance(m, self.layer_type):
-                print(f"Sparsity in {m.__class__.__name__} {k}: {100. * float(torch.sum(m.weight == 0))/ float(m.weight.nelement()):.2f}%")
 
-    def apply_nm_sparsity(self, scores):
+    def _apply_nm_sparsity(self, 
+                          scores: torch.Tensor  # Importance scores
+    ) -> torch.Tensor:
+        "Apply 2:4 structured sparsity pattern (N:M sparsity where N=2, M=4)"
         out_channels, in_channels, kernel_height, kernel_width = scores.shape
-        sparse_mask = torch.ones_like(scores)
-        if in_channels * kernel_height * kernel_width % 16 != 0:
+    
+        if in_channels % 4 != 0 or in_channels * kernel_height * kernel_width % 16 != 0:
             print(f"Skipping 2:4 sparsity, Cin * Kh * Kw is not a multiple of 16")
-            return sparse_mask  # Return weights unchanged if condition is not met
-        for out_ch in range(out_channels):
-            for h in range(kernel_height):
-                for w in range(kernel_width):
-                    kernel_weights = scores[out_ch, :, h, w]
-                    blocks = kernel_weights.view(-1, 4)  # Flatten into blocks of 4
-                    _, indices = blocks.topk(2, dim=1, largest=True, sorted=False)  # Retain top-2 absolute values in each block
-                    mask = torch.zeros_like(blocks)
-                    mask.scatter_(1, indices, 1)
-                    sparse_mask[out_ch, :, h, w] = mask.view(-1)  # Reshape and place the mask in the appropriate location
-        return sparse_mask
+            return torch.ones_like(scores)
+    
+        blocked_scores = rearrange(scores, 'o (b c) h w -> h w o b c', c=4)
+        threshold = blocked_scores.topk(k=2, dim=-1).values[..., -1:]
+        mask = (blocked_scores >= threshold).float()
+        return rearrange(mask, 'h w o b c -> o (b c) h w')
+
+    def print_sparsity(self) -> None:
+        total_params = 0
+        total_zeros = 0
+        
+        print("\nSparsity Report:")
+        print("-" * 80)
+        print(f"{'Layer':<20} {'Type':<15} {'Params':<10} {'Zeros':<10} {'Sparsity':<10}")
+        print("-" * 80)
+        
+        for k, m in enumerate(self.model.modules()):
+            if isinstance(m, self.layer_type):
+                zeros = torch.sum(m.weight == 0).item()
+                total = m.weight.nelement()
+                sparsity_pct = 100.0 * zeros / total if total > 0 else 0
+                
+                print(f"{f'Layer {k}':<20} {m.__class__.__name__:<15} "
+                      f"{total:<10,d} {zeros:<10,d} {sparsity_pct:>8.2f}%")
+                
+                total_params += total
+                total_zeros += zeros
+        
+        print("-" * 80)
+        overall_sparsity = 100.0 * total_zeros / total_params if total_params > 0 else 0
+        print(f"{'Overall':<20} {'all':<15} {total_params:<10,d} "
+              f"{total_zeros:<10,d} {overall_sparsity:>8.2f}%")
