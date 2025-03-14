@@ -3,7 +3,7 @@
 # %% auto 0
 __all__ = ['Quantizer']
 
-# %% ../../nbs/quantize/quantizer.ipynb 2
+# %% ../../nbs/quantize/quantizer.ipynb 3
 import torch
 import torch.nn as nn
 from fastcore.basics import store_attr
@@ -19,7 +19,7 @@ import warnings
 import copy
 from tqdm import tqdm
 
-# %% ../../nbs/quantize/quantizer.ipynb 3
+# %% ../../nbs/quantize/quantizer.ipynb 4
 class Quantizer:
     def __init__(self, 
                  backend: str = "x86",                   # Target backend for quantization

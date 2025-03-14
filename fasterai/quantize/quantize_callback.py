@@ -3,20 +3,25 @@
 # %% auto 0
 __all__ = ['QuantizeCallback']
 
-# %% ../../nbs/quantize/quantize_callback.ipynb 2
+# %% ../../nbs/quantize/quantize_callback.ipynb 3
 from fastai.callback.all import *
 from .all import *
 from torch.ao.quantization.quantize_fx import convert_fx
 import torch
 import copy
 
-# %% ../../nbs/quantize/quantize_callback.ipynb 3
+# %% ../../nbs/quantize/quantize_callback.ipynb 4
 class QuantizeCallback(Callback):
     """
     Simple callback for Quantization-Aware Training (QAT) in fastai.
     Uses the Quantizer class for configuration and conversion.
     """
-    def __init__(self, quantizer=None, backend='x86', use_per_tensor=False, verbose=False):
+    def __init__(self, 
+                 quantizer=None,        # Provide custom quantizer
+                 backend='x86',         # Target backend for quantization: 'x86', 'qnnpack'
+                 use_per_tensor=False,  # Force per-tensor quantization
+                 verbose=False          # Enable verbose output
+                ):
         """
         Initialize the QAT callback.
         """
