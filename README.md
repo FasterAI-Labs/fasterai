@@ -1,8 +1,4 @@
-# Fasterai
-
-
-
-![header](https://capsule-render.vercel.app/api?type=waving&color=008080&height=300&section=header&text=fasterai%20&fontSize=90&animation=fadeIn&fontAlignY=38&desc=A%20Library%20to%20make%20smaller%20and%20faster%20neural%20networks&descAlignY=51&descAlign=62)
+![header](https://capsule-render.vercel.app/api?type=waving&color=f97315&height=300&section=header&text=FasterAI%20&fontSize=90&animation=fadeIn&fontAlignY=38&desc=A%20Library%20to%20make%20smaller%20and%20faster%20neural%20networks&descAlignY=51&descAlign=62)
 
 <p align="center">
     <a href="https://pypi.org/project/fasterai/"><img src="https://img.shields.io/pypi/v/fasterai?color=black"></a>
@@ -25,88 +21,116 @@
   <a href="#license">License</a>
 </p>
 
-`fasterai` is a library created to make neural network **smaller** and **faster**. It essentially relies on common compression techniques for networks such as pruning, knowledge distillation, Lottery Ticket Hypothesis, ...
+Overview
+fasterAI is a PyTorch-based library that makes neural networks **smaller**, **faster**, and **more efficient** through state-of-the-art compression techniques. The library provides simple but powerful implementations of pruning, knowledge distillation, quantization, and other network optimization methods that can be applied with just a few lines of code.
 
-The core feature of `fasterai` is its Sparsifying capabilities, constructed on 4 main modules: **granularity**, **context**, **criteria**, **schedule**. Each of these modules is highly customizable, allowing you to change them according to your needs or even to come up with your own !
+Why compress your models with fasterai?
 
-## Project Documentation
+* **Reduce model size** by up to 90% with minimal accuracy loss
+* **Speed up inference** for deployment on edge devices
+* **Lower energy consumptio**n for more sustainable AI
+* **Simplify architectures** while maintaining performance
 
-Visit [Read The Docs Project Page](https://nathanhubens.github.io/fasterai/) or read following README to know more about using `fasterai`.
+
+<div align="center">
+  <img src="nbs/imgs/rm_benchmark.png" alt="Performance Improvements"/>
+</div>
+
+
 
 ---
 
 ##  Features
 
-### 1. Sparsifying
+### 1. Sparsification
 
-![alt text](nbs/imgs/sparsification.png "Sparsification")
+<div align="center">
+  <img src="nbs/imgs/rm_sparse.png" width="60%" alt="Sparsification"/>
+</div>
 
-Make your model sparse (*i.e.* prune it) according to a:
-- <b>Sparsity: </b> the percentage of weights that will be replaced by 0
-- <b>Granularity: </b> the granularity at which you operate the pruning (removing weights, vectors, kernels, filters)
-- <b>Context: </b> prune either each layer independantly (local pruning) or the whole model (global pruning)
-- <b>Criteria: </b> the criteria used to select the weights to remove (magnitude, movement, ...)
-- <b>Schedule: </b> which schedule you want to use for pruning (one shot, iterative, gradual, ...)
+Make your model sparse by replacing selected weights with zeros using `Sparsifier` or `SparsifyCallback`.
 
-This can be achieved by using the `SparsifyCallback(sparsity, granularity, context, criteria, schedule)`
+|Parameter|Description|Options|
+|---|---|---|
+|`sparsity`|Percentage of weights to zero out|0-100%|
+|`granularity`|Level at which to apply sparsity|'weight', 'vector', 'kernel', 'filter'|
+|`context`|Scope of sparsification|'local' (per layer), 'global' (whole model)|
+|`criteria`|Method to select weights|'magnitude', 'movement', 'gradient', etc.|
+|`schedule`|How sparsity evolves during training|'one_shot', 'iterative', 'gradual', etc.|
 
 ### 2. Pruning
 
-![alt text](nbs/imgs/pruning_readme.png "Pruning")
+<div align="center">
+  <img src="nbs/imgs/rm_prune.png" width="60%" alt="Pruning"/>
+</div>
 
-Once your model has useless nodes due to zero-weights, they can be removed to not be a part of the network anymore.
+Remove zero-weight nodes from your network structure using `Pruner` or `PruneCallback`.
 
-This can be achieved by using the `Pruner()` method
+|Parameter|Description|Options|
+|---|---|---|
+|`pruning_ratio`|Percentage of weights to remove|0-100%|
+|`context`|Scope of sparsification|'local' (per layer), 'global' (whole model)|
+|`criteria`|Method to select weights|'magnitude', 'movement', 'gradient', etc.|
+|`schedule`|How sparsity evolves during training|'one_shot', 'iterative', 'gradual', etc.|
 
-### 3. Regularization
+### 3. Knowledge Distillation
 
-![alt text](nbs/imgs/regularization.png "Regularization")
+<div align="center">
+  <img src="nbs/imgs/rm_distill.png" width="60%" alt="Distillation"/>
+</div>
 
-Instead of explicitely make your network sparse, let it train towards sparse connections by pushing the weights to be as small as possible.
+Transfer knowledge from a large teacher to a smaller student using `KnowledgeDistillationCallback`.
 
-Regularization can be applied to groups of weights, following the same granularities as for sparsifying, i.e.:
-- <b>Granularity: </b> the granularity at which you operate the regularization (weights, vectors, kernels, filters, ...)
+|Parameter|Description|Options|
+|---|---|---|
+|`teacher`|Teacher model|Any PyTorch model|
+|`loss`|Distillation loss function|'SoftTarget', 'Logits', 'Attention', etc.|
+|`activations_student`|Student layers to match|Layer names as strings|
+|`activations_teacher`|Teacher layers to match|Layer names as strings|
+|`weight`|Balancing weight for distillation|0.0-1.0|
 
-This can be achieved by using the `RegularizationCallback(granularity)`
+### 4. Regularization
 
-### 4. Knowledge Distillation
+<div align="center">
+  <img src="nbs/imgs/rm_regularize.png" width="60%" alt="Regularization"/>
+</div>
 
-![alt text](nbs/imgs/distillation.png "Distillation")
+Push weights toward zero during training using `RegularizeCallback`.
 
-Distill the knowledge acquired by a big model into a smaller one, by using the `KnowledgeDistillation` callback.
+|Parameter|Description|Options|
+|---|---|---|
+|`criteria`|Regularization criteria|Same as sparsification criteria|
+|`granularity`|Level of regularization|Same as sparsification granularity|
+|`weight`|Regularization strength|Floating point value|
+|`schedule`|How sparsity evolves during training|'one_shot', 'iterative', 'gradual', etc.|
+|`layer_types`|Layer types to regularize|'nn.Conv2d', 'nn.Linear', etc.|
 
-### 5. Lottery Ticket Hypothesis
+### 5. Quantization
 
-![alt text](nbs/imgs/LTH.png "Lottery Ticket Hypothesis")
+<div align="center">
+  <img src="nbs/imgs/rm_quant.png" width="60%" alt="Quantization"/>
+</div>
 
-Find the winning ticket in you network, *i.e.* the initial subnetwork able to attain at least similar performances than the network as a whole.
+Reduce the precision of weights and activations using `Quantizer` or `QuantizeCallback`.
+
+| Parameter        | Description                   | Options                    |
+| ---------------- | ----------------------------- | -------------------------- |
+| `backend`        | Target backend                | 'x86', 'qnnpack'           |
+| `method`         | Quantization method           | 'static', 'dynamic', 'qat' |
+| `use_per_tensor` | Force per-tensor quantization | True/False                 |
+
 
 ---
 
 ##  Quick Start
 
-### 0. Import fasterai
+This is how easy it is to induce Sparsification in your PyTorch model:
 
 ```python
 from fasterai.sparse.all import *
-```
 
-### 1. Create your model with fastai
-
-```python
 learn = cnn_learner(dls, model)
-```
-
-### 2. Get you Fasterai Callback
-
-```python
-sp_cb=SparsifyCallback(sparsity, granularity, context, criteria, schedule)
-```
-
-### 3. Train you model to make it sparse !
-
-```python
-learn.fit_one_cycle(n_epochs, cbs=sp_cb)
+learn.fit_one_cycle(n_epochs, cbs=SparsifyCallback(sparsity, granularity, context, criteria, schedule))
 ```
 
 ---
@@ -133,9 +157,10 @@ pip install fasterai
 - [Find winning tickets using the Lottery Ticket Hypothesis](https://nathanhubens.github.io/fasterai/tutorial.lottery_ticket.html)
 - [Use Knowledge Distillation to help a student model to reach higher performance](https://nathanhubens.github.io/fasterai/tutorial.knowledge_distillation.html)
 - [Sparsify Transformers](https://nathanhubens.github.io/fasterai/tutorial.transformers.html)
-- More to come...
+- Many more !
 
 ---
+
 
 ## Join the community
 
@@ -162,4 +187,4 @@ Join [our discord server](https://discord.gg/32BwhJSB9u) to meet other FasterAI 
 
 [Apache-2.0](https://www.apache.org/licenses/) License.
 
-![footer](https://capsule-render.vercel.app/api?type=waving&color=008080&height=100&section=footer)
+![footer](https://capsule-render.vercel.app/api?type=waving&color=f97315&height=100&section=footer)
