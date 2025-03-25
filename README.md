@@ -21,7 +21,8 @@
   <a href="#license">License</a>
 </p>
 
-Overview
+## Overview
+
 fasterAI is a PyTorch-based library that makes neural networks **smaller**, **faster**, and **more efficient** through state-of-the-art compression techniques. The library provides simple but powerful implementations of pruning, knowledge distillation, quantization, and other network optimization methods that can be applied with just a few lines of code.
 
 Why compress your models with fasterai?
@@ -129,7 +130,7 @@ This is how easy it is to induce Sparsification in your PyTorch model:
 ```python
 from fasterai.sparse.all import *
 
-learn = cnn_learner(dls, model)
+learn = vision_learner(dls, model)
 learn.fit_one_cycle(n_epochs, cbs=SparsifyCallback(sparsity, granularity, context, criteria, schedule))
 ```
 
