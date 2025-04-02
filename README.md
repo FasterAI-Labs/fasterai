@@ -140,7 +140,7 @@ learn.fit_one_cycle(n_epochs, cbs=SparsifyCallback(sparsity, granularity, contex
 
 
 ```
-pip install git+https://github.com/nathanhubens/fasterai.git
+pip install git+https://github.com/FasterAI-Labs/fasterai.git
 ```
 
 or 
