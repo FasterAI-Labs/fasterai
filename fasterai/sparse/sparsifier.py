@@ -12,6 +12,7 @@ from itertools import cycle
 from fastcore.basics import store_attr, listify, true
 from typing import Callable, Optional, Union, List, Tuple, Type
 from ..core.criteria import *
+from einops import rearrange
 
 # %% ../../nbs/sparse/sparsifier.ipynb 5
 class Sparsifier():
