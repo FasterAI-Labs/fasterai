@@ -170,7 +170,7 @@ class Sparsifier():
                      threshold: torch.Tensor # Threshold for pruning
     ) -> torch.Tensor:
         "Compute binary mask for weights based on scores and threshold"
-        if self.nm == True: return self.apply_nm_sparsity(scores)
+        if self.nm == True: return self._apply_nm_sparsity(scores)
         if threshold > scores.max(): threshold = scores.max() # Make sure we don't remove every weight of a given layer
         return scores.ge(threshold).to(dtype=scores.dtype)
 
