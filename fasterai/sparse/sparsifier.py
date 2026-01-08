@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import pickle
+import copy
 from itertools import cycle
 from fastcore.basics import store_attr, listify, true
 from typing import Callable, Optional, Union, List, Tuple, Type

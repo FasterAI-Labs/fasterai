@@ -88,7 +88,7 @@ class Pruner():
                     m.num_heads = self.num_heads[m.qkv]
                     m.head_dim = m.qkv.out_features // (3 * m.num_heads)
                 elif hasattr(m, 'qkv_proj'):
-                    m.num_heads = self.num_heads[m.qqkv_projkv]
+                    m.num_heads = self.num_heads[m.qkv_proj]
                     m.head_dim = m.qkv_proj.out_features // (3 * m.num_heads)
 
 
