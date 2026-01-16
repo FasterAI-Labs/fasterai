@@ -60,8 +60,15 @@ class RegularizeCallback(Callback):
                             layer_reg = self.current_weight * scores.sum()
                             layer_regs.append(layer_reg)
                             
-                        except Exception as e:
-                            print(f"Error: {e}")
+                        except (KeyError, ValueError) as e:
+                            # Skip unsupported granularities for this module type
+                            import warnings
+                            warnings.warn(f"Skipping regularization for {type(m).__name__}: {e}")
+                            continue
+                        except RuntimeError as e:
+                            # Handle tensor operation errors
+                            import warnings
+                            warnings.warn(f"Runtime error in regularization for {type(m).__name__}: {e}")
                             continue
                 
                 if layer_regs:

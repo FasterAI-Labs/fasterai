@@ -40,7 +40,7 @@ class Granularities:
                         g: str                      # Mapping from granularity names to dimensions
     ) -> None:
         "Add granularity specifications for a new module type"
-        cls._granularities[m] = g
+        cls._granularities[m_type] = g
         
     @classmethod
     def allowed_granularities(cls, 

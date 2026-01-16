@@ -11,11 +11,14 @@ import copy
 
 # %% ../../nbs/misc/bn_folding.ipynb 12
 class BN_Folder():
+    "Fold BatchNorm layers into preceding Conv2d layers for inference optimization"
     def __init__(self):
-        super().__init__()
+        pass
         
-    def fold(self, model):
-
+    def fold(self, 
+             model: nn.Module  # The model to fold (must be in eval mode)
+    ) -> nn.Module:
+        "Recursively fold all BatchNorm2d layers into their preceding Conv2d layers"
         new_model = copy.deepcopy(model)
 
         module_names = list(new_model._modules)
@@ -33,14 +36,22 @@ class BN_Folder():
                         folded_conv = self._fold_conv_bn_eval(new_model._modules[module_names[k-1]], new_model._modules[name])
 
                         # Replace old weight values
-                        #new_model._modules.pop(name) # Remove the BN layer
                         new_model._modules[module_names[k]] = nn.Identity()
-                        new_model._modules[module_names[k-1]] = folded_conv # Replace the Convolutional Layer by the folded version
+                        new_model._modules[module_names[k-1]] = folded_conv
 
         return new_model
 
 
-    def _bn_folding(self, conv_w, conv_b, bn_rm, bn_rv, bn_eps, bn_w, bn_b):
+    def _bn_folding(self, 
+                    conv_w: torch.Tensor,   # Convolution weights [out_ch, in_ch, kH, kW]
+                    conv_b: torch.Tensor,   # Convolution bias [out_ch] or None
+                    bn_rm: torch.Tensor,    # BatchNorm running mean
+                    bn_rv: torch.Tensor,    # BatchNorm running variance
+                    bn_eps: float,          # BatchNorm epsilon
+                    bn_w: torch.Tensor,     # BatchNorm weight (gamma)
+                    bn_b: torch.Tensor      # BatchNorm bias (beta)
+    ) -> tuple:
+        "Compute folded convolution weights and bias from conv + BN parameters"
         if conv_b is None:
             conv_b = bn_rm.new_zeros(bn_rm.shape)
         bn_var_rsqrt = torch.rsqrt(bn_rv + bn_eps)
@@ -51,7 +62,11 @@ class BN_Folder():
         return torch.nn.Parameter(w_fold), torch.nn.Parameter(b_fold)
 
 
-    def _fold_conv_bn_eval(self, conv, bn):
+    def _fold_conv_bn_eval(self, 
+                           conv: nn.Conv2d,      # The convolution layer (must be in eval mode)
+                           bn: nn.BatchNorm2d    # The BatchNorm layer (must be in eval mode)
+    ) -> nn.Conv2d:
+        "Fold a BatchNorm layer into a Conv2d layer"
         assert(not (conv.training or bn.training)), "Fusion only for eval!"
         fused_conv = copy.deepcopy(conv)
 

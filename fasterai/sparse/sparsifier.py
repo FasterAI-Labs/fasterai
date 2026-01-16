@@ -4,7 +4,6 @@
 __all__ = ['Sparsifier']
 
 # %% ../../nbs/sparse/sparsifier.ipynb 3
-import numpy as np
 import torch
 import torch.nn as nn
 import pickle
@@ -36,6 +35,9 @@ class Sparsifier():
                        round_to: Optional[int] = None  # Round to a multiple of this value
     ) -> None:
         "Apply sparsification to a single layer"
+        # Validate sparsity is in valid range [0, 100]
+        if not (0 <= sparsity <= 100):
+            raise ValueError(f"sparsity must be in range [0, 100], got {sparsity}")
         scores    = self._compute_scores(m, sparsity)
         threshold = self._compute_threshold(scores, sparsity, round_to)
         mask      = self._compute_mask(scores, threshold)
@@ -50,6 +52,10 @@ class Sparsifier():
         "Apply sparsification to all matching layers in the model"
         self._reset_threshold()
         sparsity_list = listify(sparsity)
+        # Validate all sparsity values
+        for sp in sparsity_list:
+            if not (0 <= sp <= 100):
+                raise ValueError(f"sparsity must be in range [0, 100], got {sp}")
         if len(sparsity_list) > 1 and self.context != 'local': raise ValueError(f"A list of sparsities can only be used with 'local' context, not {self.context}")
         sparsities = cycle(sparsity_list) if len(sparsity_list)==1 else iter(sparsity_list)
         mods = list(self.model.modules())
@@ -138,6 +144,9 @@ class Sparsifier():
                          round_to: int     # Rounding value
     ) -> int:
         "Round the number of elements to keep to a multiple of round_to"
+        # Guard against division by zero
+        if round_to == 0:
+            raise ValueError("round_to must be non-zero")
         return max(round_to*torch.ceil(n_to_prune/round_to), round_to)
     
     def _compute_scores(self, 

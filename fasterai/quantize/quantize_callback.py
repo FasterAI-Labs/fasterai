@@ -5,7 +5,7 @@ __all__ = ['QuantizeCallback']
 
 # %% ../../nbs/quantize/quantize_callback.ipynb 3
 from fastai.callback.all import *
-from .all import *
+from .quantizer import Quantizer
 from torch.ao.quantization.quantize_fx import convert_fx
 import torch
 import copy
@@ -73,12 +73,12 @@ class QuantizeCallback(Callback):
             self.learn.model = self.original_model.to(original_device)
     
     def after_fit(self):
+        # Get original device before try block to ensure it's available in except
+        original_device = next(self.learn.model.parameters()).device
+        
         try:
             if self.verbose:
                 print("Converting QAT model to fully quantized model")
-            
-            # Remember the original device
-            original_device = next(self.learn.model.parameters()).device
             
             # Set model to eval mode and move to CPU for conversion
             self.learn.model = self.learn.model.cpu().eval()
@@ -98,6 +98,7 @@ class QuantizeCallback(Callback):
                 
         except Exception as e:
             print(f"Error converting QAT model: {e}")
+            import traceback
             traceback.print_exc()
             
             # If conversion fails, at least keep the QAT-trained model

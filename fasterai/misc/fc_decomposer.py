@@ -11,33 +11,37 @@ import copy
 
 # %% ../../nbs/misc/fc_decomposer.ipynb 6
 class FC_Decomposer:
+    "Decompose fully-connected layers using SVD to reduce parameters"
 
     def __init__(self):
-        super().__init__()
+        pass
         
-    def decompose(self, model, percent_removed=0.5):
+    def decompose(self, 
+                  model: nn.Module,            # The model to decompose
+                  percent_removed: float = 0.5 # Fraction of singular values to remove [0, 1)
+    ) -> nn.Module:
+        "Recursively decompose all Linear layers in the model using SVD"
+        if not (0 <= percent_removed < 1):
+            raise ValueError(f"percent_removed must be in range [0, 1), got {percent_removed}")
 
         new_model = copy.deepcopy(model)
-
         module_names = list(new_model._modules)
 
         for k, name in enumerate(module_names):
-
             if len(list(new_model._modules[name]._modules)) > 0:
                 new_model._modules[name] = self.decompose(new_model._modules[name], percent_removed)
-
             else:
                 if isinstance(new_model._modules[name], nn.Linear):
-                    # Folded BN
                     layer = self.SVD(new_model._modules[name], percent_removed)
-
-                    # Replace old weight values
-                    new_model._modules[name] = layer # Replace the FC Layer by the decomposed version
+                    new_model._modules[name] = layer
         return new_model
 
 
-    def SVD(self, layer, percent_removed):
-
+    def SVD(self, 
+            layer: nn.Linear,       # The Linear layer to decompose
+            percent_removed: float  # Fraction of singular values to remove
+    ) -> nn.Sequential:
+        "Perform SVD decomposition on a single Linear layer"
         W = layer.weight.data
         U, S, V = torch.svd(W)
         L = int((1.-percent_removed)*U.shape[0])
@@ -52,7 +56,7 @@ class FC_Decomposer:
         layer_2.weight.data = W1
 
         if layer.bias.data is None: 
-            layer_2.bias.data = torch.zeros(*layer.out_features.shape)
+            layer_2.bias.data = torch.zeros(layer.out_features)
         else:
             layer_2.bias.data = layer.bias.data
 

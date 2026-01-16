@@ -112,7 +112,7 @@ class Criteria():
         return self.normalizer(scores)
 
     def _rescale(self, 
-                 scores: torch.Tensor # Inpute scores to rescale
+                 scores: torch.Tensor # Input scores to rescale
     ) -> torch.Tensor:
         "Ensure all scores are positive to maintain pruning behavior"
         min_val = scores.min()
@@ -212,4 +212,4 @@ def grad_crit(m, g):
             return (m.weight*m.weight.grad)[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)
         else: 
             return m.weight[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)
-    else: raise NameError('Invalid Granularity') 
+    else: raise ValueError('Invalid Granularity')

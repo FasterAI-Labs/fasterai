@@ -10,9 +10,6 @@ import torch.nn.functional as F
 import torch_pruning as tp
 from torch_pruning.pruner import function
 
-import numpy as np
-import torch
-import torch.nn as nn
 import pickle
 from itertools import cycle
 from fastcore.basics import store_attr, listify, true
@@ -25,11 +22,14 @@ from torch.fx import symbolic_trace
 
 # %% ../../nbs/prune/pruner.ipynb 4
 class Pruner():
+    "Structured pruning for neural networks using torch_pruning"
     def __init__(self, model, pruning_ratio, context, criteria, schedule=linear_scheduler, ignored_layers=None, example_inputs=torch.randn(1, 3, 224, 224), *args, **kwargs):
         store_attr()
         self.num_heads = {}
         if not self.ignored_layers: self.get_ignored_layers(self.model)
-        if self.pruning_ratio>1: self.pruning_ratio = self.pruning_ratio/100 
+        if self.pruning_ratio>1: self.pruning_ratio = self.pruning_ratio/100
+        if not (0 < self.pruning_ratio <= 1):
+            raise ValueError(f"pruning_ratio must be in range (0, 1], got {self.pruning_ratio}")
         self.pruner = tp.pruner.MetaPruner(
         self.model,
         example_inputs=self.example_inputs.to(next(self.model.parameters()).device),
@@ -44,36 +44,46 @@ class Pruner():
         )
           
     def prune_model(self):
+        "Execute one pruning step and restore attention layer configurations"
         self.pruner.step()
         self.restore_attention_layers()
 
 
-    def get_linear_layers_to_ignore(self, model):
+    def get_linear_layers_to_ignore(self, 
+                                    model: nn.Module  # The model to analyze
+    ):
+        "Find and ignore output Linear layers to preserve model output dimensions"
         traced = symbolic_trace(model)
         for node in traced.graph.nodes:
-            if node.op == "output":  # Identifier la sortie
+            if node.op == "output":  # Identify the output
                 for input_node in node.all_input_nodes:
-                    if input_node.target:  # Trouver la couche correspondante
+                    if input_node.target:  # Find the corresponding layer
                         module = dict(model.named_modules()).get(input_node.target)
                         if isinstance(module, torch.nn.Linear):
                             self.ignored_layers.append(module)
                             print(f"Ignoring output layer: {module}")
 
 
-    def get_attention_layers_to_ignore(self, model):
+    def get_attention_layers_to_ignore(self, 
+                                       model: nn.Module  # The model to analyze
+    ):
+        "Find and ignore attention layers (qkv projections) to preserve attention structure"
         for module in model.modules():
             if hasattr(module, 'num_heads'):
                 if hasattr(module, 'qkv'):
-                    self.ignored_layers.append(module.qkv)  # Ajouter à la liste globale
+                    self.ignored_layers.append(module.qkv)
                     self.num_heads[module.qkv] = module.num_heads
                     print(f"Attention layer ignored: {module.qkv}, num_heads={module.num_heads}")
                 elif hasattr(module, 'qkv_proj'):
-                    self.ignored_layers.append(module.qkv_proj)  # Ajouter à la liste globale
+                    self.ignored_layers.append(module.qkv_proj)
                     self.num_heads[module.qkv_proj] = module.num_heads
                     print(f"Attention layer ignored: {module.qkv_proj}, num_heads={module.num_heads}")
 
     
-    def get_ignored_layers(self, model):
+    def get_ignored_layers(self, 
+                           model: nn.Module  # The model to analyze
+    ):
+        "Build list of layers to ignore during pruning"
         self.ignored_layers = []
         self.get_linear_layers_to_ignore(model)
         self.get_attention_layers_to_ignore(model)
@@ -81,24 +91,24 @@ class Pruner():
     
                 
     def restore_attention_layers(self):
+        "Restore num_heads and head_dim attributes after pruning attention layers"
         for m in self.model.modules():
-            # Attention layers
             if hasattr(m, 'num_heads'):
                 if hasattr(m, 'qkv'):
                     m.num_heads = self.num_heads[m.qkv]
                     m.head_dim = m.qkv.out_features // (3 * m.num_heads)
                 elif hasattr(m, 'qkv_proj'):
-                    m.num_heads = self.num_heads[m.qqkv_projkv]
+                    m.num_heads = self.num_heads[m.qkv_proj]
                     m.head_dim = m.qkv_proj.out_features // (3 * m.num_heads)
 
 
     def group_importance(self, group):
+        "Compute importance scores for a dependency group"
         handler_map = {
             function.prune_conv_out_channels: 'filter',
             function.prune_linear_out_channels: 'row',
             function.prune_linear_in_channels: 'column',
             function.prune_conv_in_channels: 'shared_kernel',
-            # Additional handlers can be added here
         }
     
         group_imp = []
@@ -110,6 +120,9 @@ class Pruner():
                 group_imp.append(impo)
                 group_idxs.append(group[i].root_idxs)
     
+        if len(group_imp) == 0:
+            return torch.tensor([])
+            
         reduced_imp = torch.zeros_like(group_imp[0])
     
         for i, (imp, root_idxs) in enumerate(zip(group_imp, group_idxs)):

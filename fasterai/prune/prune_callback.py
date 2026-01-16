@@ -26,6 +26,10 @@ class PruneCallback(Callback):
         n_batches_per_epoch = len(self.learn.dls.train)
         total_training_steps = n_batches_per_epoch * self.learn.n_epoch
         self.pruning_ratio = self.pruning_ratio/100 if self.pruning_ratio>1 else self.pruning_ratio
+        
+        # Validate pruning_ratio is in valid range
+        if not (0 < self.pruning_ratio <= 1):
+            raise ValueError(f"pruning_ratio must be in range (0, 1], got {self.pruning_ratio}")
 
         self.example_inputs, _ = self.learn.dls.one_batch()
         self.sparsity_levels = self.schedule._scheduler(self.pruning_ratio, total_training_steps)
@@ -47,5 +51,7 @@ class PruneCallback(Callback):
 
     def after_epoch(self):
         completed_steps = (self.epoch + 1) * len(self.learn.dls.train)
-        current_sparsity = self.sparsity_levels[completed_steps - 1]
-        print(f'Sparsity at the end of epoch {self.epoch}: {current_sparsity*100:.2f}%')
+        # Bounds check for sparsity_levels access
+        if completed_steps > 0 and completed_steps <= len(self.sparsity_levels):
+            current_sparsity = self.sparsity_levels[completed_steps - 1]
+            print(f'Sparsity at the end of epoch {self.epoch}: {current_sparsity*100:.2f}%')
