@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from fastcore.basics import *
 from fastai.callback.schedule import *
 import math
-from typing import List, Union, Callable, Optional, Tuple, Any
+from typing import Union, Callable, Optional, Any
 
 # %% ../../nbs/core/schedules.ipynb 4
 class Schedule():
@@ -26,9 +26,9 @@ class Schedule():
         self.current_sparsity, self.previous_sparsity = map(listify, [start_sparsity, start_sparsity])
         
     def __call__(self, 
-                 end_sparsity: Union[float, List[float]], # Target sparsity level(s)
+                 end_sparsity: Union[float, list[float]], # Target sparsity level(s)
                  pct_train: float                         # Current percentage of training complete
-    ) -> List[float]:
+    ) -> list[float]:
         "Calculate current sparsity level based on training progress"
         end_sparsity_list = listify(end_sparsity)
         if pct_train >= self.start_pct and pct_train <= self.end_pct:
@@ -137,6 +137,6 @@ dsd = Schedule(sched_dsd)
 
 # %% ../../nbs/core/schedules.ipynb 47
 schedules = ('one_shot', 'iterative', 'agp', 'one_cycle', 'cos', 'lin', 'dsd')
-def available_schedules() -> List[str]:
+def available_schedules() -> list[str]:
     "Return list of available pruning schedules"
     return list(schedules)

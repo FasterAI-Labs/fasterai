@@ -14,7 +14,7 @@ from torch.ao.quantization.fake_quantize import FakeQuantize
 from torch.quantization import quantize_dynamic
 import torch.ao.quantization.quantize_fx as quantize_fx
 from torch.ao.quantization.qconfig import default_dynamic_qconfig
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Any, Union
 import warnings
 import copy
 from tqdm import tqdm
@@ -24,8 +24,8 @@ class Quantizer:
     def __init__(self, 
                  backend: str = "x86",                   # Target backend for quantization
                  method: str = "static",                 # Quantization method: 'static', 'dynamic', or 'qat'
-                 qconfig_mapping: Optional[Dict] = None, # Optional custom quantization config
-                 custom_configs: Optional[Dict] = None,  # Custom module-specific configurations
+                 qconfig_mapping: Optional[dict] = None, # Optional custom quantization config
+                 custom_configs: Optional[dict] = None,  # Custom module-specific configurations
                  use_per_tensor: bool = False,           # Force per-tensor quantization
                  verbose: bool = False                   # Enable verbose output
                 ):

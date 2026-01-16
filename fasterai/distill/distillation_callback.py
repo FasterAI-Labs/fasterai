@@ -11,15 +11,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from functools import reduce
-from typing import Union
+from typing import Union, Optional, Callable, Any
 
 # %% ../../nbs/distill/distillation_callback.ipynb 20
 class KnowledgeDistillationCallback(Callback):
     def __init__(self, 
                  teacher: nn.Module,                                           # Teacher model
                  loss: Callable,                                               # Distillation loss function
-                 activations_student: Optional[Union[str, List[str]]] = None,  # Student activation layers to match
-                 activations_teacher: Optional[Union[str, List[str]]] = None,  # Teacher activation layers to match
+                 activations_student: Optional[Union[str, list[str]]] = None,  # Student activation layers to match
+                 activations_teacher: Optional[Union[str, list[str]]] = None,  # Teacher activation layers to match
                  weight: float = 0.5                                           # Weight for distillation loss
 ):
         "Implement knowledge distillation from a teacher model to the student being trained"
@@ -28,24 +28,24 @@ class KnowledgeDistillationCallback(Callback):
         if self.activations_student is not None:
             self.activations_student, self.activations_teacher = listify(activations_student), listify(activations_teacher)
         
-    def before_fit(self):
+    def before_fit(self) -> None:
         "Setup hooks and prepare teacher before training"
         if self.activations_student and self.activations_teacher : self.register_hooks()
         self.teacher.eval()
 
-    def after_batch(self):
+    def after_batch(self) -> None:
         "Clear activations after each batch to prevent memory buildup"
         self.stored_activation_student.clear()
         self.stored_activation_teacher.clear()
 
-    def after_loss(self):
+    def after_loss(self) -> None:
         "Apply distillation loss using teacher predictions"
         teacher_pred = self.teacher(self.x)
         new_loss = self.loss(pred=self.pred, teacher_pred=teacher_pred, fm_s=self.stored_activation_student, fm_t=self.stored_activation_teacher)
         self.learn.loss_grad = torch.lerp(self.learn.loss_grad, new_loss, self.weight)
         self.learn.loss = self.learn.loss_grad.clone()
     
-    def register_hooks(self):
+    def register_hooks(self) -> None:
         "Set up forward hooks to capture activations"
         self.handles_st, self.handles_t = {}, {}
         for name_st, name_t in zip(self.activations_student, self.activations_teacher):
@@ -53,9 +53,9 @@ class KnowledgeDistillationCallback(Callback):
             self.handles_t[name_t] = get_module_by_name(self.teacher, name_t).register_forward_hook(self.get_activation(self.stored_activation_teacher, name_t))
         
     def get_activation(self, 
-                       activation: Dict[str, torch.Tensor],  # Dictionary to store activations
-                       name: str                            # Name of the layer
-        ):
+                       activation: dict[str, torch.Tensor],  # Dictionary to store activations
+                       name: str                             # Name of the layer
+        ) -> Callable:
         "Create a hook function to store activations"
         def hook(model, input, output):
             activation[name] = output
@@ -63,7 +63,7 @@ class KnowledgeDistillationCallback(Callback):
     
     def find_hook(self, 
                   m: nn.Module
-    ) -> List[Tuple[str, int, str]]:
+    ) -> list[tuple[str, int, str]]:
         "Find all hooks registered in a module"
         save = []
         module_name = type(m).__name__
@@ -72,13 +72,13 @@ class KnowledgeDistillationCallback(Callback):
         return save
     
     def remove_hooks(self, 
-                     handles: Dict[str, Any]
-    )-> None:
+                     handles: dict[str, Any]
+    ) -> None:
         "Remove all registered hooks"
         for k, v in handles.items():
             handles[k].remove()
     
-    def after_fit(self):
+    def after_fit(self) -> None:
         "Clean up hooks after training"
         if self.activations_student and self.activations_teacher:
             self.remove_hooks(self.handles_t)
@@ -88,7 +88,7 @@ class KnowledgeDistillationCallback(Callback):
 def get_model_layers(
     model: nn.Module,             # Model to inspect
     getLayerRepr: bool = False    # Whether to return layer representations
-) -> Union[List[str], Dict[str, str]]:
+) -> Union[list[str], dict[str, str]]:
     "Get all layer names in a model, optionally with their representations"
     layers = OrderedDict() if getLayerRepr else []
     

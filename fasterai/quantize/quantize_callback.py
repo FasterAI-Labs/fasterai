@@ -31,7 +31,8 @@ class QuantizeCallback(Callback):
         self.verbose = verbose
         self.original_model = None
     
-    def before_fit(self):
+    def before_fit(self) -> None:
+        "Prepare model for quantization-aware training"
         # Save original model
         self.original_model = copy.deepcopy(self.learn.model)
         
@@ -72,7 +73,8 @@ class QuantizeCallback(Callback):
             # Restore original model on error
             self.learn.model = self.original_model.to(original_device)
     
-    def after_fit(self):
+    def after_fit(self) -> None:
+        "Convert QAT model to fully quantized model"
         # Get original device before try block to ensure it's available in except
         original_device = next(self.learn.model.parameters()).device
         

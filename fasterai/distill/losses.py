@@ -7,43 +7,42 @@ __all__ = ['SoftTarget', 'Logits', 'Mutual', 'Attention', 'ActivationBoundaries'
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict
 
 # %% ../../nbs/distill/losses.ipynb 3
-def SoftTarget(pred,          # Student predictions
-               teacher_pred,  # Teacher predictions
-               T=5,           # Temperature for softening
+def SoftTarget(pred: torch.Tensor,          # Student predictions
+               teacher_pred: torch.Tensor,  # Teacher predictions
+               T: float = 5,                # Temperature for softening
                **kwargs
-):
+) -> torch.Tensor:
     "Knowledge distillation with softened distributions (Hinton et al.)"
     student_soft = F.log_softmax(pred / T, dim=1)
     teacher_soft = F.softmax(teacher_pred / T, dim=1)
     return nn.KLDivLoss(reduction='batchmean')(student_soft, teacher_soft) * (T * T)
 
 # %% ../../nbs/distill/losses.ipynb 4
-def Logits(pred,          # Student predictions
-           teacher_pred,  # Teacher predictions
+def Logits(pred: torch.Tensor,          # Student predictions
+           teacher_pred: torch.Tensor,  # Teacher predictions
            **kwargs
-):
+) -> torch.Tensor:
     "Direct logit matching between student and teacher"
     return F.mse_loss(pred, teacher_pred)
 
 # %% ../../nbs/distill/losses.ipynb 5
-def Mutual(pred,          # Student predictions
-           teacher_pred,  # Teacher predictions
+def Mutual(pred: torch.Tensor,          # Student predictions
+           teacher_pred: torch.Tensor,  # Teacher predictions
            **kwargs
-):
+) -> torch.Tensor:
     "KL divergence between student and teacher"
     student_log_prob = F.log_softmax(pred, dim=1)
     teacher_prob = F.softmax(teacher_pred, dim=1)
     return nn.KLDivLoss(reduction='batchmean')(student_log_prob, teacher_prob)
 
 # %% ../../nbs/distill/losses.ipynb 6
-def Attention(fm_s,  # Student feature maps {name: tensor}
-              fm_t,  # Teacher feature maps {name: tensor}
-              p=2,   # Power for attention computation
+def Attention(fm_s: dict[str, torch.Tensor],  # Student feature maps {name: tensor}
+              fm_t: dict[str, torch.Tensor],  # Teacher feature maps {name: tensor}
+              p: int = 2,                     # Power for attention computation
               **kwargs
-):
+) -> torch.Tensor:
     "Attention transfer loss (Zagoruyko & Komodakis)"
     total_loss = 0.0
     for name_st, name_t in zip(fm_s, fm_t):
@@ -55,11 +54,11 @@ def Attention(fm_s,  # Student feature maps {name: tensor}
     return total_loss
 
 # %% ../../nbs/distill/losses.ipynb 7
-def ActivationBoundaries(fm_s,  # Student feature maps
-                         fm_t,  # Teacher feature maps
-                         m=2,   # Boundary margin
+def ActivationBoundaries(fm_s: dict[str, torch.Tensor],  # Student feature maps
+                         fm_t: dict[str, torch.Tensor],  # Teacher feature maps
+                         m: float = 2,                   # Boundary margin
                          **kwargs
-):
+) -> torch.Tensor:
     "Boundary-based knowledge distillation (Heo et al.)"
     total_loss = 0.0
     for name_st, name_t in zip(fm_s, fm_t):
@@ -71,10 +70,10 @@ def ActivationBoundaries(fm_s,  # Student feature maps
     return total_loss
 
 # %% ../../nbs/distill/losses.ipynb 8
-def FitNet(fm_s,  # Student feature maps
-           fm_t,  # Teacher feature maps
+def FitNet(fm_s: dict[str, torch.Tensor],  # Student feature maps
+           fm_t: dict[str, torch.Tensor],  # Teacher feature maps
            **kwargs
-):
+) -> torch.Tensor:
     "FitNets: direct feature map matching (Romero et al.)"
     total_loss = 0.0
     for name_st, name_t in zip(fm_s, fm_t):
@@ -82,12 +81,12 @@ def FitNet(fm_s,  # Student feature maps
     return total_loss
 
 # %% ../../nbs/distill/losses.ipynb 9
-def Similarity(fm_s,  # Student feature maps
-               fm_t,  # Teacher feature maps
-               pred,  # Student predictions (unused, for API consistency)
-               p=2,   # Normalization power
+def Similarity(fm_s: dict[str, torch.Tensor],  # Student feature maps
+               fm_t: dict[str, torch.Tensor],  # Teacher feature maps
+               pred: torch.Tensor,             # Student predictions (unused, for API consistency)
+               p: int = 2,                     # Normalization power
                **kwargs
-):
+) -> torch.Tensor:
     "Similarity-preserving knowledge distillation (Tung & Mori)"
     total_loss = 0.0
     for name_st, name_t in zip(fm_s, fm_t):

@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from fastcore.basics import *
 from fastcore.imports import *
 from .granularity import *
-from typing import Callable, Optional, Union, List, Tuple
+from typing import Callable, Optional, Union
 from enum import Enum, auto
 
 # %% ../../nbs/core/criteria.ipynb 6
@@ -78,7 +78,7 @@ class Criteria():
         except KeyError:
             raise ValueError(f'Invalid granularity "{g}" for module type {type(m).__name__}')
             
-        if self.needs_update and hasattr(m, '_old_weights') == False:
+        if self.needs_update and not hasattr(m, '_old_weights'):
             m.register_buffer("_old_weights", m._init_weights.clone()) # If the previous value of weights is not known, take the initial value
             
         wf = self.f(m.weight)
@@ -99,7 +99,7 @@ class Criteria():
     
     def _reduce(self, 
                 scores: torch.Tensor,  # Input scores
-                dim: Union[int, List[int]]      # Dimensions to reduce
+                dim: Union[int, list[int]]      # Dimensions to reduce
     ) -> torch.Tensor:
         "Reduce scores along specified dimensions"
         return self.reducer(scores, dim)

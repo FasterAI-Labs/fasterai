@@ -9,7 +9,7 @@ import torch.nn as nn
 import pickle
 from itertools import cycle
 from fastcore.basics import store_attr, listify, true
-from typing import Callable, Optional, Union, List, Tuple, Type
+from typing import Callable, Optional, Union, Type
 from ..core.criteria import *
 from einops import rearrange
 
@@ -24,7 +24,7 @@ class Sparsifier():
                  nm: bool = False,                        # Whether to use N:M sparsity pattern (forces 2:4 sparsity)
                  layer_type: Type[nn.Module] = nn.Conv2d  # Type of layers to apply sparsification to
     ):
-        if nm == True: print('Sparsity automatically set to 50% with 2:4 pattern')
+        if nm: print('Sparsity automatically set to 50% with 2:4 pattern')
         store_attr()
         self._save_weights()
         self._reset_threshold()
@@ -46,7 +46,7 @@ class Sparsifier():
         self.criteria.update_weights(m)
 
     def sparsify_model(self, 
-                       sparsity: Union[float, List[float]],  # Target sparsity level(s)
+                       sparsity: Union[float, list[float]],  # Target sparsity level(s)
                        round_to: Optional[int] = None        # Round to a multiple of this value
     ) -> None:
         "Apply sparsification to all matching layers in the model"
@@ -180,7 +180,7 @@ class Sparsifier():
                      threshold: torch.Tensor # Threshold for pruning
     ) -> torch.Tensor:
         "Compute binary mask for weights based on scores and threshold"
-        if self.nm == True: return self._apply_nm_sparsity(scores)
+        if self.nm: return self._apply_nm_sparsity(scores)
         if threshold > scores.max(): threshold = scores.max() # Make sure we don't remove every weight of a given layer
         return scores.ge(threshold).to(dtype=scores.dtype)
 

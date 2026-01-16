@@ -13,17 +13,17 @@ from ..core.schedule import *
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Union, List, Optional, Type, Dict
+from typing import Union, Optional, Type
 
 # %% ../../nbs/regularize/regularize_callback.ipynb 4
 class RegularizeCallback(Callback):
     def __init__(self, 
-                 criteria: Union[Criteria, List[Criteria]],            # Criteria(s) to use for regularization
-                 granularity: Union[str, List[str]],                   # Granularity level(s) for grouping
+                 criteria: Union[Criteria, list[Criteria]],            # Criteria(s) to use for regularization
+                 granularity: Union[str, list[str]],                   # Granularity level(s) for grouping
                  weight: float = 0.01,                                 # Regularization weight
-                 layer_types: Union[Type, List[Type]] = nn.Conv2d,     # Layer types to apply regularization to
+                 layer_types: Union[Type, list[Type]] = nn.Conv2d,     # Layer types to apply regularization to
                  schedule: Optional[Schedule] = None,                  # Optional schedule for regularization weight
-                 per_layer_weights: Optional[Dict[str, float]] = None, # Optional per-layer weights
+                 per_layer_weights: Optional[dict[str, float]] = None, # Optional per-layer weights
                  verbose: bool = False                                 # Whether to report regularization weight
     ):
         "Callback to apply regularization using criteria during training"
@@ -34,18 +34,18 @@ class RegularizeCallback(Callback):
         self.per_layer_weights = per_layer_weights or {}
         self.current_weight = weight
         
-    def before_batch(self):
+    def before_batch(self) -> None:
         "Update regularization weight if scheduled"
         if self.schedule is not None:
             self.current_weight = self.schedule([self.weight], self.pct_train)[0]
         
-    def after_loss(self):
+    def after_loss(self) -> None:
         "Apply regularization after computing the main loss"
         reg = self.get_norm()
         self.learn.loss_grad += reg
         self.learn.loss = self.learn.loss_grad.clone()
             
-    def get_norm(self):
+    def get_norm(self) -> torch.Tensor:
         "Compute regularization using the specified criteria and granularities"
         total_reg = 0.0
         
@@ -76,7 +76,7 @@ class RegularizeCallback(Callback):
         
         return total_reg
     
-    def after_epoch(self):
+    def after_epoch(self) -> None:
         "Report current regularization weight if verbose"
         if self.verbose:
             print(f"Current regularization weight: {self.current_weight:.6f}")

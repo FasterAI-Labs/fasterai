@@ -22,7 +22,8 @@ class PruneCallback(Callback):
         self.extra_args = args
         self.extra_kwargs = kwargs
 
-    def before_fit(self):
+    def before_fit(self) -> None:
+        "Setup pruner before training"
         n_batches_per_epoch = len(self.learn.dls.train)
         total_training_steps = n_batches_per_epoch * self.learn.n_epoch
         self.pruning_ratio = self.pruning_ratio/100 if self.pruning_ratio>1 else self.pruning_ratio
@@ -45,11 +46,13 @@ class PruneCallback(Callback):
         **self.extra_kwargs
         )
         
-    def before_step(self):
+    def before_step(self) -> None:
+        "Apply pruning before optimizer step"
         if self.training: 
             self.pruner.prune_model()
 
-    def after_epoch(self):
+    def after_epoch(self) -> None:
+        "Log sparsity after each epoch"
         completed_steps = (self.epoch + 1) * len(self.learn.dls.train)
         # Bounds check for sparsity_levels access
         if completed_steps > 0 and completed_steps <= len(self.sparsity_levels):
