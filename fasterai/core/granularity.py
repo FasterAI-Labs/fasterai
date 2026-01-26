@@ -59,3 +59,8 @@ class Granularities:
     def available_granularities(cls) -> list[Type[nn.Module]]:
         "Get all module types that have defined granularities"
         return list(cls._granularities.keys())
+
+    @classmethod
+    def available_modules(cls) -> tuple[Type[nn.Module], ...]:
+        "Get all module types that support compression (for isinstance checks)"
+        return tuple(cls._granularities.keys())

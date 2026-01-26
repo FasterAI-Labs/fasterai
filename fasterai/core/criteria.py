@@ -206,11 +206,17 @@ def available_criterias():
     return criterias
 
 # %% ../../nbs/core/criteria.ipynb #1a59b37f
-def grad_crit(m, g):
-    if g in granularities[m.__class__.__name__]: 
-        dim = granularities[m.__class__.__name__][g]
-        if m.weight.grad is not None:
-            return (m.weight*m.weight.grad)[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)
-        else: 
-            return m.weight[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)
-    else: raise ValueError('Invalid Granularity')
+def grad_crit(
+    m: nn.Module,  # module to compute gradient-based importance for
+    g: str,        # granularity specification
+) -> torch.Tensor:
+    """First order Taylor expansion criterion for weight importance (Nvidia Taylor Pruning)."""
+    try:
+        dim = listify(Granularities.get_dim(m, g))
+    except KeyError:
+        raise ValueError(f'Invalid granularity "{g}" for module type {type(m).__name__}')
+    
+    if m.weight.grad is not None:
+        return (m.weight * m.weight.grad)[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)
+    else:
+        return m.weight[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)
