@@ -148,3 +148,24 @@ CLAUDE.md
 
 # nbdev auto-generated
 pyproject.toml
+
+# Model weights
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# Training runs (YOLO, etc.)
+runs/
+**/runs/
+
+# Temporary files
+*.tmp
+sym_shape_infer_temp*
+
+# Corrupt/invalid filenames (BytesIO objects, etc.)
+*BytesIO*
+*_io.*
+
+# UUID-like temp files
+[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-*
