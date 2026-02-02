@@ -68,10 +68,16 @@ website:
         - section: Regularize
           contents:
           - tutorials/regularize/regularize_callback.ipynb
+        - section: Quantize
+          contents:
+          - tutorials/quantize/quantize_callback.ipynb
         - section: Misc
           contents:
           - tutorials/misc/bn_folding.ipynb
           - tutorials/misc/fc_decomposer.ipynb
+        - section: Export
+          contents:
+          - tutorials/export/onnx_export.ipynb
       - section: Core
         contents:
         - core/granularity.ipynb
@@ -88,6 +94,7 @@ website:
       - section: Distill
         contents:
         - distill/distillation_callback.ipynb
+        - distill/losses.ipynb
       - section: Quantize
         contents:
         - quantize/quantizer.ipynb
@@ -99,5 +106,8 @@ website:
         contents:
         - misc/bn_folding.ipynb
         - misc/fc_decomposer.ipynb
+      - section: Export
+        contents:
+        - export/onnx_exporter.ipynb
 
 metadata-files: [nbdev.yml]
