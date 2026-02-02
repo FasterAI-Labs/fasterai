@@ -30,6 +30,18 @@ class Sparsifier():
         self._save_weights()
         self._reset_threshold()
 
+    def _iter_layers(self, 
+                     filter_type: str = 'layer_type',       # Filter: 'layer_type' or 'has_weight'
+                     model: nn.Module | None = None         # Model to iterate (default: self.model)
+    ):
+        "Iterate over model modules with filtering"
+        model = model or self.model
+        for m in model.modules():
+            if filter_type == 'layer_type' and isinstance(m, self.layer_type):
+                yield m
+            elif filter_type == 'has_weight' and hasattr(m, 'weight'):
+                yield m
+
     def sparsify_layer(self, 
                        m: nn.Module,                   # The layer to sparsify
                        sparsity: float,                # Target sparsity level (percentage)
@@ -78,9 +90,8 @@ class Sparsifier():
             
     def _apply_masks(self) -> None:
         "Apply all stored masks to model weights"
-        for m in self.model.modules():
-            if isinstance(m, self.layer_type):
-                self._apply(m)
+        for m in self._iter_layers():
+            self._apply(m)
         
     def _apply(self, 
               m: nn.Module  # Module to apply mask to
@@ -96,26 +107,24 @@ class Sparsifier():
     ) -> None:
         "Reset weights to their initial values"
         model = model or self.model
-        for m in model.modules():
-            if hasattr(m, 'weight'):
-                init_weights = getattr(m, "_init_weights", m.weight)
-                init_biases = getattr(m, "_init_biases", m.bias)
-                with torch.no_grad():
-                    if true(m.weight): m.weight.copy_(init_weights)
-                    if true(m.bias): m.bias.copy_(init_biases)
-                self._apply(m)
+        for m in self._iter_layers('has_weight', model):
+            init_weights = getattr(m, "_init_weights", m.weight)
+            init_biases = getattr(m, "_init_biases", m.bias)
+            with torch.no_grad():
+                if true(m.weight): m.weight.copy_(init_weights)
+                if true(m.bias): m.bias.copy_(init_biases)
+            self._apply(m)
             if isinstance(m, nn.modules.batchnorm._BatchNorm): m.reset_parameters()
                 
     def _save_weights(self) -> None:
         "Save initial weights of the model"
-        for m in self.model.modules():
-            if hasattr(m, 'weight'):              
-                m.register_buffer("_init_weights", m.weight.clone())
-                bias = getattr(m, 'bias', None)
-                if true(bias): m.register_buffer("_init_biases", bias.clone())
+        for m in self._iter_layers('has_weight'):
+            m.register_buffer("_init_weights", m.weight.clone())
+            bias = getattr(m, 'bias', None)
+            if true(bias): m.register_buffer("_init_biases", bias.clone())
                     
     def save_model(self, 
-                  path: str,             # Path to save the model
+                  path: str,                         # Path to save the model
                   model: Optional[nn.Module] = None  # Model to save (default: self.model)
     ) -> None:
         "Save model without sparsification buffers"
@@ -130,11 +139,10 @@ class Sparsifier():
     ) -> None:
         "Remove internal buffers used for sparsification"
         model = model or self.model
-        for m in model.modules():
-            if hasattr(m, 'weight'):
-                if hasattr(m, '_mask'): del m._buffers["_mask"]
-                if hasattr(m, '_init_weights'): del m._buffers["_init_weights"]
-                if hasattr(m, '_init_biases'): del m._buffers["_init_biases"]
+        for m in self._iter_layers('has_weight', model):
+            if hasattr(m, '_mask'): del m._buffers["_mask"]
+            if hasattr(m, '_init_weights'): del m._buffers["_init_weights"]
+            if hasattr(m, '_init_biases'): del m._buffers["_init_biases"]
                     
     def _reset_threshold(self) -> None:
         "Reset the threshold used for global pruning"
@@ -151,7 +159,7 @@ class Sparsifier():
         return max(round_to*torch.ceil(n_to_prune/round_to), round_to)
     
     def _compute_scores(self, 
-                       m: nn.Module,  # Module to compute scores for
+                       m: nn.Module,   # Module to compute scores for
                        sparsity: float # Target sparsity level
     ) -> torch.Tensor:
         "Compute importance scores for weights based on criteria"
@@ -165,7 +173,7 @@ class Sparsifier():
         "Compute threshold for pruning, with optional rounding"
         if self.context == 'global':
             if self.threshold is None: 
-                global_scores  = torch.cat([self.criteria(m, self.granularity).view(-1) for m in self.model.modules() if isinstance(m, self.layer_type)])
+                global_scores = torch.cat([self.criteria(m, self.granularity).view(-1) for m in self._iter_layers()])
                 self.threshold = torch.quantile(global_scores.view(-1), sparsity/100)   
         elif self.context == 'local': 
             self.threshold = torch.quantile(scores.view(-1), sparsity/100)
@@ -177,7 +185,7 @@ class Sparsifier():
         return self.threshold
     
     def _compute_mask(self, 
-                     scores: torch.Tensor,  # Importance scores
+                     scores: torch.Tensor,   # Importance scores
                      threshold: torch.Tensor # Threshold for pruning
     ) -> torch.Tensor:
         "Compute binary mask for weights based on scores and threshold"
@@ -209,17 +217,16 @@ class Sparsifier():
         print(f"{'Layer':<20} {'Type':<15} {'Params':<10} {'Zeros':<10} {'Sparsity':<10}")
         print("-" * 80)
         
-        for k, m in enumerate(self.model.modules()):
-            if isinstance(m, self.layer_type):
-                zeros = torch.sum(m.weight == 0).item()
-                total = m.weight.nelement()
-                sparsity_pct = 100.0 * zeros / total if total > 0 else 0
-                
-                print(f"{f'Layer {k}':<20} {m.__class__.__name__:<15} "
-                      f"{total:<10,d} {zeros:<10,d} {sparsity_pct:>8.2f}%")
-                
-                total_params += total
-                total_zeros += zeros
+        for k, m in enumerate(self._iter_layers()):
+            zeros = torch.sum(m.weight == 0).item()
+            total = m.weight.nelement()
+            sparsity_pct = 100.0 * zeros / total if total > 0 else 0
+            
+            print(f"{f'Layer {k}':<20} {m.__class__.__name__:<15} "
+                  f"{total:<10,d} {zeros:<10,d} {sparsity_pct:>8.2f}%")
+            
+            total_params += total
+            total_zeros += zeros
         
         print("-" * 80)
         overall_sparsity = 100.0 * total_zeros / total_params if total_params > 0 else 0

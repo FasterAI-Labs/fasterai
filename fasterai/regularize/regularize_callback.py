@@ -10,7 +10,6 @@ from ..core.schedule import *
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from typing import Union, Optional, Type
 
 # %% auto #0
@@ -45,37 +44,33 @@ class RegularizeCallback(Callback):
         reg = self.get_norm()
         self.learn.loss_grad += reg
         self.learn.loss = self.learn.loss_grad.clone()
+    
+    def _iter_layers(self):
+        "Iterate over matching layers with weights"
+        for m in self.learn.model.modules():
+            if any(isinstance(m, lt) for lt in self.layer_types) and hasattr(m, 'weight'):
+                yield m
             
     def get_norm(self) -> torch.Tensor:
         "Compute regularization using the specified criteria and granularities"
-        total_reg = 0.0
+        # Pre-filter modules once
+        layers = list(self._iter_layers())
         
+        layer_regs = []
         for crit in self.criteria:
             for g in self.granularity:
-                layer_regs = []
-                
-                for m in self.learn.model.modules():
-                    if any(isinstance(m, lt) for lt in self.layer_types) and hasattr(m, 'weight'):
-                        try:
-                            scores = crit.f(m.weight)[None].abs().sum(Granularities.get_dim(m, g))
-                            layer_reg = self.current_weight * scores.sum()
-                            layer_regs.append(layer_reg)
-                            
-                        except (KeyError, ValueError) as e:
-                            # Skip unsupported granularities for this module type
-                            import warnings
-                            warnings.warn(f"Skipping regularization for {type(m).__name__}: {e}")
-                            continue
-                        except RuntimeError as e:
-                            # Handle tensor operation errors
-                            import warnings
-                            warnings.warn(f"Runtime error in regularization for {type(m).__name__}: {e}")
-                            continue
-                
-                if layer_regs:
-                    total_reg += torch.stack(layer_regs).sum()
+                for m in layers:
+                    try:
+                        scores = crit.f(m.weight)[None].abs().sum(Granularities.get_dim(m, g))
+                        layer_regs.append(self.current_weight * scores.sum())
+                    except (KeyError, ValueError) as e:
+                        import warnings
+                        warnings.warn(f"Skipping regularization for {type(m).__name__}: {e}")
+                    except RuntimeError as e:
+                        import warnings
+                        warnings.warn(f"Runtime error in regularization for {type(m).__name__}: {e}")
         
-        return total_reg
+        return torch.stack(layer_regs).sum() if layer_regs else torch.tensor(0.0)
     
     def after_epoch(self) -> None:
         "Report current regularization weight if verbose"

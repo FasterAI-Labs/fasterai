@@ -55,7 +55,7 @@ class FC_Decomposer:
                     out_features=layer.out_features, bias=True)
         layer_2.weight.data = W1
 
-        if layer.bias.data is None: 
+        if layer.bias is None: 
             layer_2.bias.data = torch.zeros(layer.out_features)
         else:
             layer_2.bias.data = layer.bias.data
