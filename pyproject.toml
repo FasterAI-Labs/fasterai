@@ -1,11 +1,34 @@
 [build-system]
-requires = ["setuptools>=64.0"]
+requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name="fasterai"
-requires-python=">=3.6"
-dynamic = [ "keywords", "description", "version", "dependencies", "optional-dependencies", "readme", "license", "authors", "classifiers", "entry-points", "scripts", "urls"]
+name = "fasterai"
+dynamic = ["version"]
+description = "A library to make neural networks lighter and faster with fastai"
+readme = "README.md"
+requires-python = ">=3.6"
+license = {text = "Apache-2.0"}
+authors = [{name = "Nathan Hubens", email = "nathan.hubens@gmail.com"}]
+keywords = ['Pruning']
+classifiers = ["Natural Language :: English", "Intended Audience :: Developers", "Development Status :: 2 - Pre-Alpha", "Programming Language :: Python :: 3", "Programming Language :: Python :: 3 :: Only"]
+dependencies = ['fastai>=2.2', 'torch-pruning>=1.2', 'einops']
 
-[tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "settings.ini" }, { file = "setup.py" }]
+[project.urls]
+Repository = "https://github.com/FasterAI-Labs/fasterai/tree/master/"
+Documentation = "https://FasterAI-Labs.github.io/fasterai/"
+
+[project.entry-points.nbdev]
+fasterai = "fasterai._modidx:d"
+
+[tool.setuptools.dynamic]
+version = {attr = "fasterai.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["fasterai"]
+
+[tool.nbdev]
+branch = 'master'
+tst_flags = 'slow'
+custom_sidebar = true
+title = 'fasterai'

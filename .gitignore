@@ -146,8 +146,8 @@ sidebar.yml
 # AI assistant configuration
 CLAUDE.md
 
-# nbdev auto-generated
-pyproject.toml
+# nbdev3 export artifact (duplicate of lib_path inside nbs/)
+nbs/fasterai/
 
 # Model weights
 *.pt
