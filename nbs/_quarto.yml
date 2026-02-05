@@ -59,7 +59,8 @@ website:
           - tutorials/sparse/lottery_ticket.ipynb
           - tutorials/sparse/transformers.ipynb
         - section: Prune
-          contents: 
+          contents:
+          - tutorials/prune/pruner.ipynb
           - tutorials/prune/prune_callback.ipynb
           - tutorials/prune/YOLOV8.ipynb
         - section: Distill

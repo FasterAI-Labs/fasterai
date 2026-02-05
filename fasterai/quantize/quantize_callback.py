@@ -5,6 +5,7 @@ __all__ = ['QuantizeCallback']
 
 # %% ../../nbs/quantize/quantize_callback.ipynb #57a124f8-47cd-4df9-885f-df10887fc51b
 from fastai.callback.all import *
+from fastcore.basics import store_attr
 from .quantizer import Quantizer
 from torch.ao.quantization.quantize_fx import convert_fx
 import torch
@@ -22,13 +23,8 @@ class QuantizeCallback(Callback):
                  use_per_tensor=False,  # Force per-tensor quantization
                  verbose=False          # Enable verbose output
                 ):
-        """
-        Initialize the QAT callback.
-        """
-        self.quantizer = quantizer
-        self.backend = backend
-        self.use_per_tensor = use_per_tensor
-        self.verbose = verbose
+        "Initialize the QAT callback."
+        store_attr()
         self.original_model = None
     
     def before_fit(self) -> None:

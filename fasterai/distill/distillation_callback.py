@@ -9,7 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from functools import reduce
-from typing import Union, Optional, Callable, Any
+from typing import Callable, Any
+from ..core.schedule import Schedule
 
 # %% auto #0
 __all__ = ['KnowledgeDistillationCallback', 'get_model_layers', 'get_module_by_name']
@@ -19,20 +20,28 @@ class KnowledgeDistillationCallback(Callback):
     def __init__(self, 
                  teacher: nn.Module,                                           # Teacher model
                  loss: Callable,                                               # Distillation loss function
-                 activations_student: Optional[Union[str, list[str]]] = None,  # Student activation layers to match
-                 activations_teacher: Optional[Union[str, list[str]]] = None,  # Teacher activation layers to match
-                 weight: float = 0.5                                           # Weight for distillation loss
-):
+                 activations_student: str | list[str] | None = None,           # Student activation layers to match
+                 activations_teacher: str | list[str] | None = None,           # Teacher activation layers to match
+                 weight: float = 0.5,                                          # Weight for distillation loss
+                 schedule: Schedule | None = None                              # Optional schedule for weight progression
+    ):
         "Implement knowledge distillation from a teacher model to the student being trained"
         self.stored_activation_student, self.stored_activation_teacher  = {}, {}
         store_attr()
         if self.activations_student is not None:
             self.activations_student, self.activations_teacher = listify(activations_student), listify(activations_teacher)
+        self.current_weight = weight
         
     def before_fit(self) -> None:
         "Setup hooks and prepare teacher before training"
-        if self.activations_student and self.activations_teacher : self.register_hooks()
+        if self.activations_student and self.activations_teacher: self.register_hooks()
         self.teacher.eval()
+
+    def before_batch(self) -> None:
+        "Update distillation weight if scheduled"
+        if self.schedule is not None:
+            progress = self.schedule.progress(self.pct_train)
+            self.current_weight = self.weight * progress
 
     def after_batch(self) -> None:
         "Clear activations after each batch to prevent memory buildup"
@@ -43,7 +52,7 @@ class KnowledgeDistillationCallback(Callback):
         "Apply distillation loss using teacher predictions"
         teacher_pred = self.teacher(self.x)
         new_loss = self.loss(pred=self.pred, teacher_pred=teacher_pred, fm_s=self.stored_activation_student, fm_t=self.stored_activation_teacher)
-        self.learn.loss_grad = torch.lerp(self.learn.loss_grad, new_loss, self.weight)
+        self.learn.loss_grad = torch.lerp(self.learn.loss_grad, new_loss, self.current_weight)
         self.learn.loss = self.learn.loss_grad.clone()
     
     def register_hooks(self) -> None:
@@ -56,7 +65,7 @@ class KnowledgeDistillationCallback(Callback):
     def get_activation(self, 
                        activation: dict[str, torch.Tensor],  # Dictionary to store activations
                        name: str                             # Name of the layer
-        ) -> Callable:
+    ) -> Callable:
         "Create a hook function to store activations"
         def hook(model, input, output):
             activation[name] = output
@@ -76,8 +85,8 @@ class KnowledgeDistillationCallback(Callback):
                      handles: dict[str, Any]
     ) -> None:
         "Remove all registered hooks"
-        for k, v in handles.items():
-            handles[k].remove()
+        for handle in handles.values():
+            handle.remove()
     
     def after_fit(self) -> None:
         "Clean up hooks after training"
@@ -89,7 +98,7 @@ class KnowledgeDistillationCallback(Callback):
 def get_model_layers(
     model: nn.Module,             # Model to inspect
     getLayerRepr: bool = False    # Whether to return layer representations
-) -> Union[list[str], dict[str, str]]:
+) -> list[str] | dict[str, str]:
     "Get all layer names in a model, optionally with their representations"
     layers = OrderedDict() if getLayerRepr else []
     
@@ -110,9 +119,9 @@ def get_model_layers(
 
 
 def get_module_by_name(
-    module: Union[torch.Tensor, nn.Module],  # Module to search in
-    access_string: str                       # Dot-separated path to the submodule
-) -> Optional[nn.Module]:
+    module: torch.Tensor | nn.Module,  # Module to search in
+    access_string: str                 # Dot-separated path to the submodule
+) -> nn.Module | None:
     "Access a nested submodule by its name path"
     try:
         names = access_string.split(sep='.')

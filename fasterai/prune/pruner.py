@@ -21,27 +21,78 @@ from torch_pruning.pruner.algorithms.scheduler import linear_scheduler
 from torch.fx import symbolic_trace
 
 # %% ../../nbs/prune/pruner.ipynb #63acddeb-f30e-448b-a397-d4cac2adba7a
+from ..core.schedule import Schedule
+
 class Pruner():
     "Structured pruning for neural networks using torch_pruning"
     def __init__(self, model, pruning_ratio, context, criteria, schedule=linear_scheduler, ignored_layers=None, example_inputs=torch.randn(1, 3, 224, 224), *args, **kwargs):
         store_attr()
         self.num_heads = {}
+        self._original_params = sum(p.numel() for p in model.parameters())
         if not self.ignored_layers: self.get_ignored_layers(self.model)
-        if self.pruning_ratio>1: self.pruning_ratio = self.pruning_ratio/100
-        if not (0 < self.pruning_ratio <= 1):
-            raise ValueError(f"pruning_ratio must be in range (0, 1], got {self.pruning_ratio}")
+
+        # Handle pruning_ratio as float or dict
+        self.pruning_ratio_dict = None
+        if isinstance(self.pruning_ratio, dict):
+            # Convert name-based dict to module-based dict for torch-pruning
+            self.pruning_ratio_dict = self._resolve_pruning_ratio_dict(self.pruning_ratio)
+            self.default_pruning_ratio = kwargs.pop('default_pruning_ratio', 0.0)
+            print(f"Using per-layer pruning with {len(self.pruning_ratio_dict)} layer-specific ratios")
+        else:
+            if self.pruning_ratio > 1: self.pruning_ratio = self.pruning_ratio / 100
+            if not (0 < self.pruning_ratio <= 1):
+                raise ValueError(f"pruning_ratio must be in range (0, 1], got {self.pruning_ratio}")
+            self.default_pruning_ratio = self.pruning_ratio
+
+        # Convert Schedule object to torch-pruning compatible function
+        tp_schedule = self._to_tp_scheduler(self.schedule)
+
         self.pruner = tp.pruner.MetaPruner(
-        self.model,
-        example_inputs=self.example_inputs.to(next(self.model.parameters()).device),
-        importance=self.group_importance,
-        pruning_ratio=self.pruning_ratio, 
-        ignored_layers=self.ignored_layers,
-        global_pruning=True if self.context=='global' else False,
-        num_heads = self.num_heads,
-        iterative_pruning_ratio_scheduler=self.schedule,
-        *args, 
-        **kwargs
+            self.model,
+            example_inputs=self.example_inputs.to(next(self.model.parameters()).device),
+            importance=self.group_importance,
+            pruning_ratio=self.default_pruning_ratio,
+            pruning_ratio_dict=self.pruning_ratio_dict,
+            ignored_layers=self.ignored_layers,
+            global_pruning=True if self.context=='global' else False,
+            num_heads=self.num_heads,
+            iterative_pruning_ratio_scheduler=tp_schedule,
+            *args,
+            **kwargs
         )
+
+    def _build_pruning_schedule(self, sched_func):
+        "Create a schedule function compatible with torch-pruning's Pruner"
+        def scheduler(pruning_ratio, steps, start=0, end=1):
+            return [
+                sched_func(start, end, i / float(steps)) * pruning_ratio
+                for i in range(steps + 1)
+            ]
+        return scheduler
+
+    def _to_tp_scheduler(self, schedule):
+        "Convert Schedule object or callable to torch-pruning compatible scheduler"
+        # If it's a Schedule object, extract sched_func and build compatible function
+        if isinstance(schedule, Schedule):
+            return self._build_pruning_schedule(schedule.sched_func)
+        # Otherwise assume it's already a compatible callable (like linear_scheduler)
+        return schedule
+
+    def _resolve_pruning_ratio_dict(self, ratio_dict):
+        "Convert layer name strings to module references for torch-pruning"
+        name_to_module = dict(self.model.named_modules())
+        resolved = {}
+        for key, ratio in ratio_dict.items():
+            if isinstance(key, str):
+                if key in name_to_module:
+                    module = name_to_module[key]
+                    # Normalize ratio to 0-1 range
+                    resolved[module] = ratio / 100 if ratio > 1 else ratio
+                else:
+                    print(f"Warning: Layer '{key}' not found in model, skipping")
+            elif isinstance(key, nn.Module):
+                resolved[key] = ratio / 100 if ratio > 1 else ratio
+        return resolved
           
     def prune_model(self):
         "Execute one pruning step and restore attention layer configurations"
@@ -53,15 +104,18 @@ class Pruner():
                                     model: nn.Module  # The model to analyze
     ):
         "Find and ignore output Linear layers to preserve model output dimensions"
-        traced = symbolic_trace(model)
-        for node in traced.graph.nodes:
-            if node.op == "output":  # Identify the output
-                for input_node in node.all_input_nodes:
-                    if input_node.target:  # Find the corresponding layer
-                        module = dict(model.named_modules()).get(input_node.target)
-                        if isinstance(module, torch.nn.Linear):
-                            self.ignored_layers.append(module)
-                            print(f"Ignoring output layer: {module}")
+        try:
+            traced = symbolic_trace(model)
+            for node in traced.graph.nodes:
+                if node.op == "output":  # Identify the output
+                    for input_node in node.all_input_nodes:
+                        if input_node.target:  # Find the corresponding layer
+                            module = dict(model.named_modules()).get(input_node.target)
+                            if isinstance(module, torch.nn.Linear):
+                                self.ignored_layers.append(module)
+                                print(f"Ignoring output layer: {input_node.target}")
+        except Exception as e:
+            print(f"Could not trace model for output layer detection: {e}")
 
 
     def get_attention_layers_to_ignore(self, 
@@ -133,3 +187,32 @@ class Pruner():
         reduced_imp /= len(group_imp)
     
         return reduced_imp.to(default_device())
+
+    def print_sparsity(self) -> None:
+        "Print pruning report showing channel counts and parameter reduction"
+        total_params = 0
+        
+        print("\nPruning Report:")
+        print("-" * 85)
+        print(f"{'Layer':<35} {'Type':<12} {'In Ch':<8} {'Out Ch':<8} {'Params':<12}")
+        print("-" * 85)
+        
+        for name, m in self.model.named_modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):
+                params = sum(p.numel() for p in m.parameters())
+                total_params += params
+                
+                if isinstance(m, nn.Conv2d):
+                    in_ch, out_ch = m.in_channels, m.out_channels
+                    layer_type = "Conv2d"
+                else:
+                    in_ch, out_ch = m.in_features, m.out_features
+                    layer_type = "Linear"
+                
+                print(f"{name:<35} {layer_type:<12} {in_ch:<8} {out_ch:<8} {params:<12,}")
+        
+        print("-" * 85)
+        reduction = 100 * (1 - total_params / self._original_params) if self._original_params > 0 else 0
+        print(f"{'Total':<35} {'':<12} {'':<8} {'':<8} {total_params:<12,}")
+        print(f"{'Original':<35} {'':<12} {'':<8} {'':<8} {self._original_params:<12,}")
+        print(f"{'Reduction':<35} {'':<12} {'':<8} {'':<8} {reduction:>10.2f}%")

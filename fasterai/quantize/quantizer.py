@@ -14,7 +14,7 @@ from torch.ao.quantization.fake_quantize import FakeQuantize
 from torch.quantization import quantize_dynamic
 import torch.ao.quantization.quantize_fx as quantize_fx
 from torch.ao.quantization.qconfig import default_dynamic_qconfig
-from typing import Optional, Any, Union
+from typing import Any
 import warnings
 import copy
 from tqdm import tqdm
@@ -26,8 +26,8 @@ class Quantizer:
     def __init__(self, 
                  backend: str = "x86",                   # Target backend for quantization
                  method: str = "static",                 # Quantization method: 'static', 'dynamic', or 'qat'
-                 qconfig_mapping: Optional[dict] = None, # Optional custom quantization config
-                 custom_configs: Optional[dict] = None,  # Custom module-specific configurations
+                 qconfig_mapping: dict | None = None,    # Optional custom quantization config
+                 custom_configs: dict | None = None,     # Custom module-specific configurations
                  use_per_tensor: bool = False,           # Force per-tensor quantization
                  verbose: bool = False                   # Enable verbose output
                 ):
@@ -162,8 +162,8 @@ class Quantizer:
     def _calibrate_model(self, 
                         model: nn.Module, 
                         dataloader: Any, 
-                        max_samples: Optional[int] = None, 
-                        device: Union[str, torch.device] = 'cpu'
+                        max_samples: int | None = None, 
+                        device: str | torch.device = 'cpu'
                        ) -> None:
         """Calibrate the model on CPU (PyTorch quantization is CPU-only)."""
         model.eval()
@@ -240,7 +240,7 @@ class Quantizer:
                 model: nn.Module,                        # Model to quantize
                 calibration_dl: Any,                     # Dataloader for calibration
                 max_calibration_samples: int = 100,      # Maximum number of samples to use for calibration
-                device: Union[str, torch.device] = 'cpu' # Device to use for calibration
+                device: str | torch.device = 'cpu'       # Device to use for calibration
                ) -> nn.Module:
         """
         Quantize a model using the specified method and settings.

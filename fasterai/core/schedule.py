@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from fastcore.basics import *
 from fastai.callback.schedule import *
 import math
-from typing import Union, Callable, Optional, Any
+from typing import Callable
 
 # %% auto #0
 __all__ = ['one_shot', 'iterative', 'agp', 'one_cycle', 'cos', 'lin', 'dsd', 'schedules', 'Schedule', 'sched_oneshot',
@@ -15,60 +15,67 @@ __all__ = ['one_shot', 'iterative', 'agp', 'one_cycle', 'cos', 'lin', 'dsd', 'sc
 
 # %% ../../nbs/core/schedules.ipynb #a46d12a3
 class Schedule():
-    "Base class to create schedules"
-    def __init__(self, 
-                 sched_func: Callable,      # Function that computes sparsity at given training percentage
-                 start_pct: float = 0.,     # Percentage of training to start pruning
-                 end_pct: float = 1.,       # Percentage of training to end pruning (default: 1.0)
-                 start_sparsity: float = 0. # Initial sparsity level
+    "Base class to create schedules that return progress (0→1)"
+    def __init__(self,
+                 sched_func: Callable,  # Function that computes progress at given training percentage
+                 start_pct: float = 0., # Percentage of training to start schedule
+                 end_pct: float = 1.,   # Percentage of training to end schedule
+                 start_val: float = 0., # Starting value for progress range
+                 end_val: float = 1.    # Ending value for progress range
     ):
-        "Base class to create sparsity schedules for pruning"
+        "Base class to create schedules for pruning, regularization, distillation, etc."
         store_attr()
-        self.current_sparsity, self.previous_sparsity = map(listify, [start_sparsity, start_sparsity])
-        
-    def __call__(self, 
-                 end_sparsity: Union[float, list[float]], # Target sparsity level(s)
-                 pct_train: float                         # Current percentage of training complete
-    ) -> list[float]:
-        "Calculate current sparsity level based on training progress"
-        end_sparsity_list = listify(end_sparsity)
-        if pct_train >= self.start_pct and pct_train <= self.end_pct:
-            normalized_pct = (pct_train - self.start_pct) / (self.end_pct - self.start_pct)
-            self.current_sparsity = [self.sched_func(self.start_sparsity, sp, normalized_pct) for sp in end_sparsity_list]
-        return self.current_sparsity
-        
+        self._current_progress = start_val
+        self._previous_progress = start_val
+
+    def progress(self, pct_train: float) -> float:
+        "Return progress value based on training progress"
+        if pct_train < self.start_pct:
+            self._current_progress = self.start_val
+        elif pct_train >= self.end_pct:
+            self._current_progress = self.sched_func(self.start_val, self.end_val, 1.)
+        else:
+            normalized = (pct_train - self.start_pct) / (self.end_pct - self.start_pct)
+            self._current_progress = self.sched_func(self.start_val, self.end_val, normalized)
+        return self._current_progress
+
+    @property
+    def changed(self) -> bool:
+        "Check if progress changed since last step"
+        return self._previous_progress != self._current_progress
+
+    # Backward compatibility alias
     @property
     def pruned(self) -> bool:
-        "Check if sparsity level has changed since last update"
-        return self.previous_sparsity!=self.current_sparsity
-    
-    def after_pruned(self) -> None:
-        "Update previous sparsity after pruning is applied"
-        self.previous_sparsity=self.current_sparsity
-    
-    def plot(self, 
-             end_sparsity: float,     # Target sparsity to visualize 
-             num_points: int = 1000  # Target sparsity to visualize 
-    ) -> None:
-        "Plot the sparsity schedule"
-        prune = np.linspace(0, 1, num_points)
-        sps = [self([end_sparsity], p) for p in prune]
-        fig, ax = plt.subplots(1, 1, figsize=(8,6), dpi=100)
-        plt.plot(prune, sps, c='teal', linewidth=2)
-        plt.xlabel('training iterations (Normalized)')
-        plt.ylabel('sparsity')
-        self.current_sparsity = self.previous_sparsity
-    
-    def reset(self) -> None:
-        "Reset schedule to initial state"
-        self.current_sparsity, self.previous_sparsity = map(listify, [self.start_sparsity, self.start_sparsity])
+        "Deprecated: use `.changed` instead"
+        return self.changed
 
-    
-    def _scheduler(self, pruning_ratio_dict, steps, start=0, end=1, *args, **kwargs):
-        return [
-            self.sched_func(start, end, i / float(steps), *args, **kwargs) * pruning_ratio_dict
-            for i in range(steps + 1)
-        ]
+    def after_step(self) -> None:
+        "Update previous progress after action applied"
+        self._previous_progress = self._current_progress
+
+    # Backward compatibility alias
+    def after_pruned(self) -> None:
+        "Deprecated: use `after_step()` instead"
+        self.after_step()
+
+    def reset(self) -> None:
+        "Reset to initial state"
+        self._current_progress = self.start_val
+        self._previous_progress = self.start_val
+
+    def plot(self,
+             target: float = 100,    # Target value to visualize (e.g., sparsity percentage)
+             num_points: int = 1000  # Number of points to plot
+    ) -> None:
+        "Plot the schedule showing how target value changes over training"
+        pcts = np.linspace(0, 1, num_points)
+        values = [self.progress(p) * target for p in pcts]
+        fig, ax = plt.subplots(1, 1, figsize=(8,6), dpi=100)
+        plt.plot(pcts, values, c='teal', linewidth=2)
+        plt.xlabel('training iterations (Normalized)')
+        plt.ylabel('value')
+        self.reset()
 
 # %% ../../nbs/core/schedules.ipynb #corresponding-religious
 def sched_oneshot(

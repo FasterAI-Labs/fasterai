@@ -7,7 +7,7 @@ from fastai.callback.all import *
 from .sparsifier import *
 from ..core.criteria import *
 from ..core.schedule import *
-from typing import Callable, Optional, Union, Type
+from typing import Callable, Type
 
 import torch
 import torch.nn as nn
@@ -19,23 +19,29 @@ __all__ = ['SparsifyCallback']
 # %% ../../nbs/sparse/sparsify_callback.ipynb #4b720750
 class SparsifyCallback(Callback):
     def __init__(self, 
-                 sparsity: Union[float, list[float]],    # Target sparsity level(s)
-                 granularity: str,                       # Type of pruning granularity (e.g., 'weight', 'filter')
-                 context: str,                           # Pruning context ('global' or 'local')
-                 criteria: Criteria,                     # Criteria for determining weights to keep
-                 schedule: Schedule,                     # Pruning schedule to use
-                 lth: bool = False,                      # Whether to use Lottery Ticket Hypothesis approach
-                 rewind_epoch: int = 0,                  # Epoch to rewind weights to for LTH
-                 reset_end: bool = False,                # Whether to reset weights after pruning
-                 save_tickets: bool = False,             # Whether to save pruned models as "winning tickets"
-                 model: Optional[nn.Module] = None,      # Model to sparsify (if None, uses learn.model)
-                 round_to: Optional[int] = None,         # Round pruning to multiple of this value
-                 nm: bool = False,                       # Whether to use N:M structured sparsity
-                 layer_type: Type[nn.Module] = nn.Conv2d # Layer type to apply pruning to
+                 sparsity: float | dict[str, float],        # Target sparsity (float) or per-layer dict
+                 granularity: str,                           # Type of pruning granularity (e.g., 'weight', 'filter')
+                 context: str,                               # Pruning context ('global' or 'local')
+                 criteria: Criteria,                         # Criteria for determining weights to keep
+                 schedule: Schedule,                         # Pruning schedule to use
+                 lth: bool = False,                          # Whether to use Lottery Ticket Hypothesis approach
+                 rewind_epoch: int = 0,                      # Epoch to rewind weights to for LTH
+                 reset_end: bool = False,                    # Whether to reset weights after pruning
+                 save_tickets: bool = False,                 # Whether to save pruned models as "winning tickets"
+                 model: nn.Module | None = None,             # Model to sparsify (if None, uses learn.model)
+                 round_to: int | None = None,                # Round pruning to multiple of this value
+                 nm: bool = False,                           # Whether to use N:M structured sparsity
+                 layer_type: Type[nn.Module] = nn.Conv2d     # Layer type to apply pruning to
     ):
         "Callback to sparsify model during training according to a schedule"
         store_attr()
-        self.sparsity = listify(self.sparsity)
+        self.current_sparsity = 0.0
+
+    def _sparsity_value(self) -> float:
+        "Extract a single sparsity value for logging/saving (first value if dict)"
+        if isinstance(self.current_sparsity, dict):
+            return next(iter(self.current_sparsity.values()))
+        return self.current_sparsity
 
     def before_fit(self) -> None:
         "Setup sparsifier before training"
@@ -52,33 +58,47 @@ class SparsifyCallback(Callback):
 
     def before_batch(self) -> None:
         "Update sparsity level and potentially apply pruning"
-        self.current_sparsity = self.schedule(self.sparsity, round(self.pct_train,3))
-        if self.schedule.pruned and self.training:
+        progress = self.schedule.progress(round(self.pct_train, 3))
+        
+        # Compute current sparsity: float * progress or {layer: sp * progress}
+        if isinstance(self.sparsity, dict):
+            self.current_sparsity = {k: v * progress for k, v in self.sparsity.items()}
+        else:
+            self.current_sparsity = self.sparsity * progress
+        
+        if self.schedule.changed and self.training:
             if self.lth and self.save_tickets:
                 print('Saving Intermediate Ticket')
-                self.sparsifier.save_model(f'winning_ticket_{self.previous_sparsity[0]:.2f}.pth', self.learn.model)
+                self.sparsifier.save_model(f'winning_ticket_{self._sparsity_value():.2f}.pth', self.learn.model)
             self.sparsifier.sparsify_model(self.current_sparsity, self.round_to)
 
     def after_step(self) -> None:
         "Handle post-pruning steps"
-        if self.lth and self.schedule.pruned:
+        if self.lth and self.schedule.changed:
             print(f'Resetting Weights to their epoch {self.rewind_epoch} values')
             self.sparsifier._reset_weights(self.learn.model)
-        self.schedule.after_pruned()
+        self.schedule.after_step()
         self.sparsifier._apply_masks()
 
     def after_epoch(self) -> None:
         "Log sparsity after each epoch"
-        sparsity_str = [float(f"{sp:.2f}") for sp in self.current_sparsity]
-        print(f'Sparsity at the end of epoch {self.epoch}: {sparsity_str}%')
+        if isinstance(self.current_sparsity, dict):
+            avg_sparsity = sum(self.current_sparsity.values()) / len(self.current_sparsity)
+            print(f'Sparsity at the end of epoch {self.epoch}: avg={avg_sparsity:.2f}%')
+        else:
+            print(f'Sparsity at the end of epoch {self.epoch}: {self.current_sparsity:.2f}%')
 
     def after_fit(self) -> None:
         "Clean up after training"
         if self.save_tickets:
             print('Saving Final Ticket')
-            self.sparsifier.save_model(f'winning_ticket_{self.previous_sparsity[0]:.2f}.pth', self.learn.model)
-        final_sparsity = [float(f"{sp:.2f}") for sp in self.schedule.current_sparsity]
-        print(f'Final Sparsity: {final_sparsity}%')
+            self.sparsifier.save_model(f'winning_ticket_{self._sparsity_value():.2f}.pth', self.learn.model)
+        
+        if isinstance(self.current_sparsity, dict):
+            print(f'Final Sparsity: {self.current_sparsity}')
+        else:
+            print(f'Final Sparsity: {self.current_sparsity:.2f}%')
+        
         if self.reset_end: self.sparsifier._reset_weights()
         self.sparsifier._clean_buffers()
         self.schedule.reset()

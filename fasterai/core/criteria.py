@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from fastcore.basics import *
 from fastcore.imports import *
 from .granularity import *
-from typing import Callable, Optional, Union
+from typing import Callable
 from enum import Enum, auto
 
 # %% auto #0
@@ -57,10 +57,10 @@ class Criteria():
     def __init__(self, 
                  f:Callable[[torch.Tensor], torch.Tensor],                                         # Function that transforms weights (e.g., torch.abs, torch.square)
                  reducer: Callable = Reducer.mean,                                                 # Method to reduce dimensions ('mean' or 'sum')
-                 normalizer: Optional[Callable] = None,                                            # Method to normalize scores (None, 'sum', 'standardization', 'mean', 'max', 'gaussian')
+                 normalizer: Callable | None = None,                                               # Method to normalize scores (None, 'sum', 'standardization', 'mean', 'max', 'gaussian')
                  needs_init:bool=False,                                                            # Whether this criteria needs the initial weights
                  needs_update:bool=False,                                                          # Whether this criteria needs to track weight updates between iterations
-                 output_fn:Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,  # Function to combine current and reference weights
+                 output_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,    # Function to combine current and reference weights
                  return_init=False,                                                                # Whether to return the transformed initial weights instead of final output
     ):
         "Evaluates neural network parameters based on various criteria for pruning"
@@ -100,7 +100,7 @@ class Criteria():
     
     def _reduce(self, 
                 scores: torch.Tensor,  # Input scores
-                dim: Union[int, list[int]]      # Dimensions to reduce
+                dim: int | list[int]   # Dimensions to reduce
     ) -> torch.Tensor:
         "Reduce scores along specified dimensions"
         return self.reducer(scores, dim)

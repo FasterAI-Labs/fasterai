@@ -11,6 +11,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, asdict
 from typing import Callable, Any, Literal
 from collections import OrderedDict
+from fastcore.basics import store_attr
 
 # fasterai imports (relative within fasterai package)
 from ..sparse.all import Sparsifier
@@ -103,7 +104,7 @@ class SensitivityResult:
         rows = [layer.as_dict() for layer in self.layers]
         return pd.DataFrame(rows)
     
-    def to_schedule(
+    def to_layer_targets(
         self,
         model: nn.Module,          # model (used for parameter counts)
         target_pct: float = 50,    # target mean compression percentage
@@ -111,7 +112,7 @@ class SensitivityResult:
         max_pct: float = 90,       # maximum compression for any layer
         gamma: float = 1.0,        # exponent for sensitivity scaling (higher = more differentiation)
     ) -> dict[str, float]:
-        """Convert sensitivity to non-uniform compression schedule.
+        """Convert sensitivity to non-uniform per-layer compression targets.
         
         High sensitivity layers get lower compression, robust layers get higher.
         Uses parameter-weighted optimization to hit target_pct exactly.
@@ -214,14 +215,8 @@ class SensitivityAnalyzer:
         device: str | torch.device | None = None,      # device for computation
         calibration_data: torch.Tensor | None = None,  # for observer-based quantization
     ):
-        self.model = model
-        self.sample = sample
-        self.eval_fn = eval_fn
-        self.criteria = criteria
-        self.higher_is_better = higher_is_better
-        self.metric_name = metric_name
+        store_attr()
         self.device = device or next(model.parameters()).device
-        self.calibration_data = calibration_data
         self._results: SensitivityResult | None = None
         self._sparsifier: Sparsifier | None = None
         self._activation_hooks: list[Any] = []
@@ -275,6 +270,16 @@ class SensitivityAnalyzer:
         if hasattr(module, '_mask'):
             del module._buffers['_mask']
     
+    def _clone_model(self) -> nn.Module:
+        """Create a clean copy of the model (avoids deepcopy issues with non-leaf tensors)."""
+        import io
+        buffer = io.BytesIO()
+        torch.save(self.model, buffer)
+        buffer.seek(0)
+        model_copy = torch.load(buffer, weights_only=False)
+        model_copy.eval()
+        return model_copy
+    
     def _apply_structural_pruning(
         self, 
         target_name: str,  # name of layer to prune
@@ -282,9 +287,14 @@ class SensitivityAnalyzer:
     ) -> nn.Module:
         """Apply structural pruning to a single layer using fasterai Pruner.
         
-        Returns a deep copy of the model with only the target layer pruned.
+        Returns a copy of the model with only the target layer pruned.
+        Uses state_dict cloning to avoid deepcopy issues with non-leaf tensors.
         """
-        model_copy = deepcopy(self.model)
+        try:
+            model_copy = self._clone_model()
+        except Exception:
+            # Fallback to deepcopy if clone fails
+            model_copy = deepcopy(self.model)
         
         all_layers = []
         target_module = None

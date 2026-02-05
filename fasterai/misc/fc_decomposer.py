@@ -44,7 +44,7 @@ class FC_Decomposer:
         "Perform SVD decomposition on a single Linear layer"
         W = layer.weight.data
         U, S, V = torch.svd(W)
-        L = int((1.-percent_removed)*U.shape[0])
+        L = max(1, int((1.-percent_removed) * S.shape[0]))
         W1 = U[:,:L]
         W2 = torch.diag(S[:L]) @ V[:,:L].t()
         layer_1 = nn.Linear(in_features=layer.in_features, 

@@ -22,6 +22,16 @@ class PruneCallback(Callback):
         self.extra_args = args
         self.extra_kwargs = kwargs
 
+    def _build_pruning_schedule(self, sched_func):
+        "Create a schedule function compatible with torch-pruning's Pruner"
+        start_val, end_val = self.schedule.start_val, self.schedule.end_val
+        def scheduler(pruning_ratio, steps, start=start_val, end=end_val):
+            return [
+                sched_func(start, end, i / float(steps)) * pruning_ratio
+                for i in range(steps + 1)
+            ]
+        return scheduler
+
     def before_fit(self) -> None:
         "Setup pruner before training"
         n_batches_per_epoch = len(self.learn.dls.train)
@@ -33,17 +43,20 @@ class PruneCallback(Callback):
             raise ValueError(f"pruning_ratio must be in range (0, 1], got {self.pruning_ratio}")
 
         self.example_inputs, _ = self.learn.dls.one_batch()
-        self.sparsity_levels = self.schedule._scheduler(self.pruning_ratio, total_training_steps)
+        
+        # Build schedule function for torch-pruning compatibility
+        pruning_schedule = self._build_pruning_schedule(self.schedule.sched_func)
+        self.sparsity_levels = pruning_schedule(self.pruning_ratio, total_training_steps)
         
         self.pruner = Pruner(
-        self.learn.model,
-        criteria=self.criteria,
-        pruning_ratio=self.pruning_ratio, 
-        context=self.context,
-        iterative_steps= total_training_steps, 
-        schedule=self.schedule._scheduler,
-        *self.extra_args, 
-        **self.extra_kwargs
+            self.learn.model,
+            criteria=self.criteria,
+            pruning_ratio=self.pruning_ratio, 
+            context=self.context,
+            iterative_steps=total_training_steps, 
+            schedule=pruning_schedule,
+            *self.extra_args, 
+            **self.extra_kwargs
         )
         
     def before_step(self) -> None:

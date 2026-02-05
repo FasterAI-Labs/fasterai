@@ -2,6 +2,8 @@
 
 # %% ../../nbs/regularize/regularize_callback.ipynb #7b9d82f5
 from __future__ import annotations
+import warnings
+
 from fastai.callback.all import *
 from fastcore.basics import store_attr, listify
 from ..core.criteria import *
@@ -10,7 +12,7 @@ from ..core.schedule import *
 
 import torch
 import torch.nn as nn
-from typing import Union, Optional, Type
+from typing import Type
 
 # %% auto #0
 __all__ = ['RegularizeCallback']
@@ -18,12 +20,11 @@ __all__ = ['RegularizeCallback']
 # %% ../../nbs/regularize/regularize_callback.ipynb #46f6973d
 class RegularizeCallback(Callback):
     def __init__(self, 
-                 criteria: Union[Criteria, list[Criteria]],            # Criteria(s) to use for regularization
-                 granularity: Union[str, list[str]],                   # Granularity level(s) for grouping
+                 criteria: Criteria | list[Criteria],            # Criteria(s) to use for regularization
+                 granularity: str | list[str],                   # Granularity level(s) for grouping
                  weight: float = 0.01,                                 # Regularization weight
-                 layer_types: Union[Type, list[Type]] = nn.Conv2d,     # Layer types to apply regularization to
-                 schedule: Optional[Schedule] = None,                  # Optional schedule for regularization weight
-                 per_layer_weights: Optional[dict[str, float]] = None, # Optional per-layer weights
+                 layer_types: Type | list[Type] = nn.Conv2d,     # Layer types to apply regularization to
+                 schedule: Schedule | None = None,                  # Optional schedule for regularization weight
                  verbose: bool = False                                 # Whether to report regularization weight
     ):
         "Callback to apply regularization using criteria during training"
@@ -31,13 +32,13 @@ class RegularizeCallback(Callback):
         self.criteria = listify(criteria)
         self.granularity = listify(granularity)
         self.layer_types = listify(layer_types)
-        self.per_layer_weights = per_layer_weights or {}
         self.current_weight = weight
         
     def before_batch(self) -> None:
         "Update regularization weight if scheduled"
         if self.schedule is not None:
-            self.current_weight = self.schedule([self.weight], self.pct_train)[0]
+            progress = self.schedule.progress(self.pct_train)
+            self.current_weight = self.weight * progress
         
     def after_loss(self) -> None:
         "Apply regularization after computing the main loss"
@@ -64,10 +65,8 @@ class RegularizeCallback(Callback):
                         scores = crit.f(m.weight)[None].abs().sum(Granularities.get_dim(m, g))
                         layer_regs.append(self.current_weight * scores.sum())
                     except (KeyError, ValueError) as e:
-                        import warnings
                         warnings.warn(f"Skipping regularization for {type(m).__name__}: {e}")
                     except RuntimeError as e:
-                        import warnings
                         warnings.warn(f"Runtime error in regularization for {type(m).__name__}: {e}")
         
         return torch.stack(layer_regs).sum() if layer_regs else torch.tensor(0.0)
