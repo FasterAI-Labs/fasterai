@@ -3,7 +3,7 @@
 <p align="center">
     <a href="https://pypi.org/project/fasterai/"><img src="https://img.shields.io/pypi/v/fasterai?color=black"></a>
     <a href="https://pypi.org/project/fasterai/"><img src="https://static.pepy.tech/personalized-badge/fasterai?color=black&period=total&units=international_system&left_color=grey&right_color=black&left_text=downloads"></a>
-    <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/github/license/nathanhubens/fasterai?color=black"></a>
+    <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/github/license/FasterAI-Labs/fasterai?color=black"></a>
     <a href="https://pypi.org/project/fasterai/"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.6469868-y?color=black"></a>
 </p>
 
@@ -29,7 +29,7 @@ Why compress your models with fasterai?
 
 * **Reduce model size** by up to 90% with minimal accuracy loss
 * **Speed up inference** for deployment on edge devices
-* **Lower energy consumptio**n for more sustainable AI
+* **Lower energy consumption** for more sustainable AI
 * **Simplify architectures** while maintaining performance
 
 
@@ -153,11 +153,11 @@ pip install fasterai
 
 ## Tutorials
 
-- [Get Started with FasterAI](https://fasterai-labs.github.io/fasterai/quickstart.html)
-- [Create your own pruning schedule](https://fasterai-labs.github.io/fasterai/tutorial.schedules.html)
-- [Find winning tickets using the Lottery Ticket Hypothesis](https://fasterai-labs.github.io/fasterai/tutorial.lottery_ticket.html)
-- [Use Knowledge Distillation to help a student model to reach higher performance](https://fasterai-labs.github.io/fasterai/tutorial.knowledge_distillation.html)
-- [Sparsify Transformers](https://fasterai-labs.github.io/fasterai/tutorial.transformers.html)
+- [Get Started with FasterAI](https://FasterAI-Labs.github.io/fasterai/quickstart.html)
+- [Create your own pruning schedule](https://FasterAI-Labs.github.io/fasterai/tutorial.schedules.html)
+- [Find winning tickets using the Lottery Ticket Hypothesis](https://FasterAI-Labs.github.io/fasterai/tutorial.lottery_ticket.html)
+- [Use Knowledge Distillation to help a student model to reach higher performance](https://FasterAI-Labs.github.io/fasterai/tutorial.knowledge_distillation.html)
+- [Sparsify Transformers](https://FasterAI-Labs.github.io/fasterai/tutorial.transformers.html)
 - Many more !
 
 ---
@@ -176,7 +176,7 @@ Join [our discord server](https://discord.gg/32BwhJSB9u) to meet other FasterAI 
   title        = {fasterai},
   year         = 2022,
   publisher    = {Zenodo},
-  version      = {v0.1.6},
+  version      = {v0.3.0},
   doi          = {10.5281/zenodo.6469868},
   url          = {https://doi.org/10.5281/zenodo.6469868}
 }

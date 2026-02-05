@@ -4,12 +4,12 @@ authors:
 - family-names: "Hubens"
   given-names: "Nathan"
 title: "fasterai"
-version: 0.1.8
+version: 0.3.0
 doi: 10.5281/zenodo.6469868
-date-released: 2022-06-06
+date-released: 2025-01-01
 license: "Apache-2.0"
-url: "https://nathanhubens.github.io/fasterai/"
-repository-code: "https://github.com/nathanhubens/fasterai"
+url: "https://FasterAI-Labs.github.io/fasterai/"
+repository-code: "https://github.com/FasterAI-Labs/fasterai"
 keywords:
   - machine learning
   - deep learning
@@ -17,3 +17,5 @@ keywords:
   - pruning
   - knowledge distillation
   - compression
+  - quantization
+  - sparsification
