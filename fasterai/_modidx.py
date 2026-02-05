@@ -3,7 +3,7 @@
 d = { 'settings': { 'branch': 'master',
                 'doc_baseurl': '/fasterai',
                 'doc_host': 'https://FasterAI-Labs.github.io',
-                'git_url': 'https://github.com/FasterAI-Labs/fasterai/tree/master',
+                'git_url': 'https://github.com/FasterAI-Labs/fasterai',
                 'lib_path': 'fasterai'},
   'syms': { 'fasterai.analyze.sensitivity': { 'fasterai.analyze.sensitivity.LayerSensitivity': ( 'analyze/sensitivity.html#layersensitivity',
                                                                                                  'fasterai/analyze/sensitivity.py'),
