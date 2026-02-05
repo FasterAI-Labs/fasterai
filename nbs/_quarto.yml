@@ -79,9 +79,9 @@ website:
         - section: Export
           contents:
           - tutorials/export/onnx_export.ipynb
-        - section: Analysis
+        - section: Analyze
           contents:
-          - tutorials/analysis/sensitivity.ipynb
+          - tutorials/analyze/sensitivity.ipynb
       - section: Core
         contents:
         - core/granularity.ipynb
@@ -106,9 +106,9 @@ website:
       - section: Regularize
         contents:
         - regularize/regularize_callback.ipynb
-      - section: Analysis
+      - section: Analyze
         contents:
-        - analysis/sensitivity.ipynb
+        - analyze/sensitivity.ipynb
       - section: Misc
         contents:
         - misc/bn_folding.ipynb
