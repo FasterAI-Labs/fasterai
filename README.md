@@ -5,8 +5,8 @@
     <a href="https://pypi.org/project/fasterai/"><img src="https://static.pepy.tech/personalized-badge/fasterai?color=black&period=total&units=international_system&left_color=grey&right_color=black&left_text=downloads"></a>
     <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/github/license/FasterAI-Labs/fasterai?color=black"></a>
     <a href="https://pypi.org/project/fasterai/"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.6469868-y?color=black"></a>
-    <a href="https://github.com/FasterAI-Labs/fasterai/actions/workflows/test.yaml"><img src="https://github.com/FasterAI-Labs/fasterai/actions/workflows/test.yaml/badge.svg"></a>
-    <a href="https://github.com/FasterAI-Labs/fasterai"><img src="https://img.shields.io/github/stars/FasterAI-Labs/fasterai?style=social"></a>
+    <a href="https://github.com/FasterAI-Labs/fasterai/actions/workflows/test.yaml"><img src="https://img.shields.io/github/actions/workflow/status/FasterAI-Labs/fasterai/test.yaml?color=black"></a>
+    <a href="https://github.com/FasterAI-Labs/fasterai"><img src="https://img.shields.io/github/stars/FasterAI-Labs/fasterai?color=black"></a>
 </p>
 
 
