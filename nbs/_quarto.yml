@@ -31,13 +31,13 @@ website:
         href: "mailto:nathan.hubens@gmail.com?subject=Hello"
       - text: "Report an Issue"
         icon: bug
-        href: https://github.com/nathanhubens/fasterai/issues
+        href: https://github.com/FasterAI-Labs/fasterai/issues
       - text: "Join the Community"
         icon: discord
         href: https://discord.gg/32BwhJSB9u
     right:
       - icon: github
-        href: "https://github.com/nathanhubens/fasterai"
+        href: "https://github.com/FasterAI-Labs/fasterai"
       - icon: twitter
         href: https://twitter.com/fasterai
         aria-label: FasterAI Twitter
