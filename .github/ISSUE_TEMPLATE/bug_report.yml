@@ -19,7 +19,7 @@ body:
     id: reproduce
     attributes:
       label: Steps to Reproduce
-      description: How you ran into the issue.
+      description: Details of all the steps that lead into the error. If possible, provide a code snippet and/or a traceback.
       placeholder: |
         1. ...
         2. ...
