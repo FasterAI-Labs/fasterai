@@ -8,14 +8,15 @@ import torch.nn.functional as F
 from fastcore.basics import *
 from fastcore.imports import *
 from .granularity import *
-from typing import Callable
+from typing import Callable, Any
 from enum import Enum, auto
 
 # %% auto #0
 __all__ = ['EPS', 'random', 'large_final', 'squared_final', 'small_final', 'large_init', 'small_init', 'large_init_large_final',
            'small_init_small_final', 'magnitude_increase', 'movement', 'updating_magnitude_increase',
-           'updating_movement', 'updating_movmag', 'criterias', 'Reducer', 'Normalizer', 'Criteria',
-           'magnitude_criteria', 'init_based_criteria', 'update_based_criteria', 'available_criterias', 'grad_crit']
+           'updating_movement', 'updating_movmag', 'criterias', 'wanda', 'Reducer', 'Normalizer', 'Criteria',
+           'magnitude_criteria', 'init_based_criteria', 'update_based_criteria', 'available_criterias',
+           'activation_criteria', 'grad_crit']
 
 # %% ../../nbs/core/criteria.ipynb #7739ca4c-6644-4f19-9c15-d1bb57c2cf29
 EPS = torch.finfo(torch.float32).eps
@@ -53,6 +54,12 @@ class Normalizer:
         return (scores - scores.mean()) / (scores.std() + EPS)
 
 # %% ../../nbs/core/criteria.ipynb #01499c0f
+_DATA_FNS = {
+    'l2_norm': lambda x, dim: x.pow(2).sum(dim=dim),
+    'max':     lambda x, dim: x.abs().amax(dim=dim),
+    'mean':    lambda x, dim: x.abs().mean(dim=dim),
+}
+
 class Criteria():
     def __init__(self, 
                  f:Callable[[torch.Tensor], torch.Tensor],                                         # Function that transforms weights (e.g., torch.abs, torch.square)
@@ -62,11 +69,57 @@ class Criteria():
                  needs_update:bool=False,                                                          # Whether this criteria needs to track weight updates between iterations
                  output_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | None = None,    # Function to combine current and reference weights
                  return_init=False,                                                                # Whether to return the transformed initial weights instead of final output
+                 scale: dict[nn.Module, torch.Tensor] | None = None,                               # Per-layer scale factors (e.g., activation norms for Wanda)
+                 needs_data: bool = False,                                                         # Whether this criteria needs calibration data
+                 data_fn: str = 'l2_norm',                                                         # Activation statistic to collect: 'l2_norm', 'max', 'mean'
     ):
         "Evaluates neural network parameters based on various criteria for pruning"
         store_attr()
         assert (needs_init and needs_update)==False, "The init values will be overwritten by the updating ones."
-   
+
+    def calibrate(self,
+                  model: nn.Module,                         # Model to calibrate
+                  data,                                     # Calibration data (tensor, list of batches, or DataLoader)
+                  layer_type: type[nn.Module] = nn.Conv2d,  # Layer types to collect activations for
+                  n_batches: int = 5,                       # Number of batches to process
+    ) -> None:
+        "Collect per-channel activation statistics via forward hooks"
+        device = next(model.parameters()).device
+        accum_fn = _DATA_FNS[self.data_fn]
+        state = {}
+
+        # Register hooks
+        hooks = []
+        for m in model.modules():
+            if isinstance(m, layer_type):
+                state[m] = {'acc': torch.zeros(m.weight.shape[1], device=device), 'n': 0}
+                def make_hook(module):
+                    def hook(mod, inp):
+                        x = inp[0].detach()
+                        dims = [i for i in range(x.dim()) if i != 1]
+                        state[module]['acc'] += accum_fn(x, dims)
+                        state[module]['n'] += x.shape[0]
+                    return hook
+                hooks.append(m.register_forward_pre_hook(make_hook(m)))
+
+        # Forward pass
+        model.eval()
+        with torch.no_grad():
+            if isinstance(data, torch.Tensor):
+                model(data.to(device))
+            else:
+                for n, batch in enumerate(data):
+                    if n >= n_batches: break
+                    xb = batch[0] if isinstance(batch, (tuple, list)) else batch
+                    model(xb.as_subclass(torch.Tensor).to(device))
+
+        for h in hooks: h.remove()
+
+        # Finalize: for l2_norm take sqrt of mean, for others just mean
+        finalize = (lambda acc, n: (acc / max(n, 1)).sqrt()) if self.data_fn == 'l2_norm' \
+                   else (lambda acc, n: acc / max(n, 1))
+        self.scale = {m: finalize(s['acc'], s['n']) for m, s in state.items()}
+
     @torch.no_grad()
     def __call__(self, 
                  m: nn.Module,  # The module to compute scores for
@@ -80,7 +133,7 @@ class Criteria():
             raise ValueError(f'Invalid granularity "{g}" for module type {type(m).__name__}')
             
         if self.needs_update and not hasattr(m, '_old_weights'):
-            m.register_buffer("_old_weights", m._init_weights.clone()) # If the previous value of weights is not known, take the initial value
+            m.register_buffer("_old_weights", m._init_weights.clone())
             
         wf = self.f(m.weight)
         
@@ -90,6 +143,9 @@ class Criteria():
         if self.output_fn: scores = self.output_fn(wf, wi)
         elif self.return_init: scores = wi
         else: scores = wf
+
+        if self.scale and m in self.scale:
+            scores = torch.einsum('oi..., i -> oi...', scores, self.scale[m])
             
         scores = self._rescale(scores)
         if hasattr(m, '_mask'): scores.mul_(m._mask)
@@ -98,36 +154,26 @@ class Criteria():
         if squeeze: scores = scores[None].squeeze((0,*dim))
         return scores
     
-    def _reduce(self, 
-                scores: torch.Tensor,  # Input scores
-                dim: int | list[int]   # Dimensions to reduce
-    ) -> torch.Tensor:
+    def _reduce(self, scores, dim):
         "Reduce scores along specified dimensions"
         return self.reducer(scores, dim)
             
-    def _normalize(self, 
-                   scores: torch.Tensor # Input scores to normalize
-    ) -> torch.Tensor:
+    def _normalize(self, scores):
         "Normalize scores using the specified method"
         if self.normalizer is None: return scores
         return self.normalizer(scores)
 
-    def _rescale(self, 
-                 scores: torch.Tensor # Input scores to rescale
-    ) -> torch.Tensor:
+    def _rescale(self, scores):
         "Ensure all scores are positive to maintain pruning behavior"
         min_val = scores.min()
-        if min_val < 0:
-            scores.add_(-min_val)
+        if min_val < 0: scores.add_(-min_val)
         scores.add_(EPS)
         return scores
 
-    def update_weights(self, 
-                       m: nn.Module   # Module whose weights should be updated
-    ) -> None:
+    def update_weights(self, m):
         "Update the reference weights for criteria that track changes"
         if self.needs_update: 
-            m._old_weights = m.weight.data.clone() # The current value becomes the old one for the next iteration
+            m._old_weights = m.weight.data.clone()
 
 # %% ../../nbs/core/criteria.ipynb #abfb02c7-d6b7-4666-aff4-449745f06ac0
 def magnitude_criteria(transform_fn, **kwargs):
@@ -204,6 +250,14 @@ criterias = (
 def available_criterias():
     "Return the list of available criteria names"
     return criterias
+
+# %% ../../nbs/core/criteria.ipynb #i52myvrfz6
+def activation_criteria(transform_fn, data_fn='l2_norm', **kwargs):
+    "Create a criteria that uses activation statistics to weight scores"
+    return Criteria(transform_fn, needs_data=True, data_fn=data_fn, **kwargs)
+
+# %% ../../nbs/core/criteria.ipynb #y090ywrz0h
+wanda = activation_criteria(torch.abs)
 
 # %% ../../nbs/core/criteria.ipynb #1a59b37f
 def grad_crit(

@@ -48,7 +48,8 @@ class SparsifyCallback(Callback):
         print(f'Pruning of {self.granularity} until a sparsity of {self.sparsity}%')
         assert self.schedule.start_pct*self.n_epoch>=self.rewind_epoch, 'You must rewind to an epoch before the start of the pruning process'
         model = self.model or self.learn.model
-        self.sparsifier = Sparsifier(model, self.granularity, self.context, self.criteria, self.nm, self.layer_type)
+        data = self.learn.dls.train if getattr(self.criteria, 'needs_data', False) else None
+        self.sparsifier = Sparsifier(model, self.granularity, self.context, self.criteria, self.nm, self.layer_type, data=data)
 
     def before_epoch(self) -> None:
         "Save weights at rewind epoch if using LTH"

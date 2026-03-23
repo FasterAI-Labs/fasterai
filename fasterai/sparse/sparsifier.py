@@ -22,12 +22,17 @@ class Sparsifier():
                  context: str,                            # Context for sparsification ('global' or 'local')
                  criteria: Criteria,                      # Criteria to determine which weights to keep
                  nm: bool = False,                        # Whether to use N:M sparsity pattern (forces 2:4 sparsity)
-                 layer_type: Type[nn.Module] = nn.Conv2d  # Type of layers to apply sparsification to
+                 layer_type: Type[nn.Module] = nn.Conv2d, # Type of layers to apply sparsification to
+                 data = None,                             # Calibration data for activation-based criteria (e.g., wanda)
     ):
         if nm: print('Sparsity automatically set to 50% with 2:4 pattern')
-        store_attr()
+        store_attr('model,granularity,context,criteria,nm,layer_type')
         self._save_weights()
         self._reset_threshold()
+        if getattr(self.criteria, 'needs_data', False):
+            if data is None:
+                raise ValueError(f"Criteria requires calibration data. Pass data= to Sparsifier.")
+            self.criteria.calibrate(model, data, layer_type)
 
     def _iter_layers(self, 
                      filter_type: str = 'layer_type',       # Filter: 'layer_type' or 'has_weight'
