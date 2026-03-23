@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # %% auto #0
-__all__ = ['SoftTarget', 'Logits', 'Mutual', 'Attention', 'ActivationBoundaries', 'FitNet', 'Similarity']
+__all__ = ['SoftTarget', 'Logits', 'Mutual', 'DecoupledKD', 'Attention', 'ActivationBoundaries', 'FitNet', 'Similarity']
 
 # %% ../../nbs/distill/losses.ipynb #soft-target
 def SoftTarget(pred: torch.Tensor,          # Student predictions
@@ -37,6 +37,38 @@ def Mutual(pred: torch.Tensor,          # Student predictions
     student_log_prob = F.log_softmax(pred, dim=1)
     teacher_prob = F.softmax(teacher_pred, dim=1)
     return nn.KLDivLoss(reduction='batchmean')(student_log_prob, teacher_prob)
+
+# %% ../../nbs/distill/losses.ipynb #u16okq651fd
+def DecoupledKD(pred: torch.Tensor,          # Student logits (B, C)
+                teacher_pred: torch.Tensor,  # Teacher logits (B, C)
+                T: float = 4,                # Temperature for softening
+                alpha: float = 1.0,          # Weight for target-class KD (TCKD)
+                beta: float = 8.0,           # Weight for non-target-class KD (NCKD)
+                target: torch.Tensor | None = None,  # Ground-truth labels (B,)
+                **kwargs
+) -> torch.Tensor:
+    "Decoupled Knowledge Distillation (Zhao et al. CVPR 2022)"
+    if target is None:
+        raise ValueError("DecoupledKD requires `target` labels. Use SoftTarget for label-free distillation.")
+    
+    gt_mask = torch.zeros_like(pred).scatter_(1, target.unsqueeze(1), 1).bool()
+    
+    # TCKD: KL over 2-class distribution [target_prob, non_target_prob]
+    student_soft = F.softmax(pred / T, dim=1)
+    teacher_soft = F.softmax(teacher_pred / T, dim=1)
+    student_tckd = torch.cat([student_soft[gt_mask].unsqueeze(1),
+                              (1 - student_soft[gt_mask]).unsqueeze(1)], dim=1)
+    teacher_tckd = torch.cat([teacher_soft[gt_mask].unsqueeze(1),
+                              (1 - teacher_soft[gt_mask]).unsqueeze(1)], dim=1)
+    tckd = F.kl_div(student_tckd.log(), teacher_tckd, reduction='batchmean')
+    
+    # NCKD: KL over non-target classes (mask target with -1000 before softmax)
+    inf_mask = gt_mask.float() * 1000.0
+    student_nckd = F.log_softmax(pred / T - inf_mask, dim=1)
+    teacher_nckd = F.softmax(teacher_pred / T - inf_mask, dim=1)
+    nckd = F.kl_div(student_nckd, teacher_nckd, reduction='batchmean')
+    
+    return (alpha * tckd + beta * nckd) * (T * T)
 
 # %% ../../nbs/distill/losses.ipynb #attention
 def Attention(fm_s: dict[str, torch.Tensor],  # Student feature maps {name: tensor}
