@@ -51,7 +51,7 @@ class KnowledgeDistillationCallback(Callback):
     def after_loss(self) -> None:
         "Apply distillation loss using teacher predictions"
         teacher_pred = self.teacher(self.x)
-        new_loss = self.loss(pred=self.pred, teacher_pred=teacher_pred, fm_s=self.stored_activation_student, fm_t=self.stored_activation_teacher)
+        new_loss = self.loss(pred=self.pred, teacher_pred=teacher_pred, fm_s=self.stored_activation_student, fm_t=self.stored_activation_teacher, target=self.y)
         self.learn.loss_grad = torch.lerp(self.learn.loss_grad, new_loss, self.current_weight)
         self.learn.loss = self.learn.loss_grad.clone()
     
