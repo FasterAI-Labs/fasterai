@@ -201,6 +201,12 @@ class Sparsifier():
             raise ValueError("round_to must be non-zero")
         return max(round_to * torch.ceil(n_to_prune / round_to), round_to)
     
+    @staticmethod
+    def _kth_value(scores: torch.Tensor, fraction: float) -> torch.Tensor:
+        "Find the value at a given fraction (like quantile, but no size limit)"
+        k = max(1, int(fraction * scores.numel()))
+        return scores.kthvalue(k).values
+
     def _compute_scores(self, 
                        m: nn.Module,   # Module to compute scores for
                        sparsity: float # Target sparsity level
@@ -217,9 +223,9 @@ class Sparsifier():
         if self.context == 'global':
             if self.threshold is None: 
                 global_scores = torch.cat([self.criteria(m, self.granularity).view(-1) for m in self._iter_layers()])
-                self.threshold = torch.quantile(global_scores.view(-1), sparsity / 100)   
+                self.threshold = self._kth_value(global_scores.view(-1), sparsity / 100)
         elif self.context == 'local': 
-            self.threshold = torch.quantile(scores.view(-1), sparsity / 100)
+            self.threshold = self._kth_value(scores.view(-1), sparsity / 100)
         else: 
             raise ValueError(f'Invalid context: {self.context}. Must be "global" or "local"')
             
