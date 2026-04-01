@@ -12,7 +12,6 @@ from torch.ao.quantization.quantize_fx import prepare_fx, prepare_qat_fx, conver
 from torch.ao.quantization.observer import MinMaxObserver, MovingAverageMinMaxObserver
 from torch.ao.quantization.fake_quantize import FakeQuantize
 from torch.quantization import quantize_dynamic
-import torch.ao.quantization.quantize_fx as quantize_fx
 from torch.ao.quantization.qconfig import default_dynamic_qconfig
 from typing import Any
 import warnings
@@ -49,7 +48,7 @@ import contextlib
 class Quantizer:
     def __init__(self, 
                  backend: str = "x86",                   # Target backend: 'x86', 'qnnpack', 'fbgemm', or 'torchao'
-                 method: str = "static",                 # Method: 'static', 'dynamic', 'qat', 'int8_weight_only', 'int4_weight_only', 'int8_dynamic'
+                 method: str = "static",                 # Method: 'static', 'dynamic', 'qat', 'int8_weight_only', 'int8_dynamic'
                  qconfig_mapping: dict | None = None,    # Optional custom quantization config (legacy backends only)
                  custom_configs: dict | None = None,     # Custom module-specific configurations
                  use_per_tensor: bool = False,           # Force per-tensor quantization (legacy backends only)
