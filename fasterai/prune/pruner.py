@@ -25,16 +25,36 @@ from ..core.schedule import Schedule
 
 class Pruner():
     "Structured pruning for neural networks using torch_pruning"
-    def __init__(self, model, pruning_ratio, context, criteria, schedule=linear_scheduler, ignored_layers=None, example_inputs=torch.randn(1, 3, 224, 224), *args, **kwargs):
+    def __init__(self,
+                 model,                    # The PyTorch model to prune
+                 pruning_ratio,            # Channel pruning ratio (float 0-1, int 0-100, or dict)
+                 context,                  # 'local' or 'global'
+                 criteria,                 # Importance criteria (e.g. large_final)
+                 schedule=linear_scheduler,# Pruning schedule
+                 ignored_layers=None,      # Layers to skip during pruning
+                 example_inputs=torch.randn(1, 3, 224, 224),  # Dummy input for tracing
+                 head_pruning_ratio=0.0,   # Ratio of attention heads to remove (0-1 or 0-100)
+                 prune_num_heads=False,    # Remove entire attention heads
+                 prune_head_dims=True,     # Reduce head dimensions
+                 *args, **kwargs,
+    ):
         store_attr()
         self.num_heads = {}
+        self._original_num_heads = {}
         self._original_params = sum(p.numel() for p in model.parameters())
+
+        # Normalize head_pruning_ratio
+        if self.head_pruning_ratio > 1: self.head_pruning_ratio = self.head_pruning_ratio / 100
+        # Auto-enable: head_pruning_ratio > 0 implies prune whole heads, not dims (XOR pattern)
+        if self.head_pruning_ratio > 0:
+            self.prune_num_heads = True
+            self.prune_head_dims = False
+
         if not self.ignored_layers: self.get_ignored_layers(self.model)
 
         # Handle pruning_ratio as float or dict
         self.pruning_ratio_dict = None
         if isinstance(self.pruning_ratio, dict):
-            # Convert name-based dict to module-based dict for torch-pruning
             self.pruning_ratio_dict = self._resolve_pruning_ratio_dict(self.pruning_ratio)
             self.default_pruning_ratio = kwargs.pop('default_pruning_ratio', 0.0)
             print(f"Using per-layer pruning with {len(self.pruning_ratio_dict)} layer-specific ratios")
@@ -56,6 +76,9 @@ class Pruner():
             ignored_layers=self.ignored_layers,
             global_pruning=True if self.context=='global' else False,
             num_heads=self.num_heads,
+            prune_num_heads=self.prune_num_heads,
+            prune_head_dims=self.prune_head_dims,
+            head_pruning_ratio=self.head_pruning_ratio,
             iterative_pruning_ratio_scheduler=tp_schedule,
             *args,
             **kwargs
@@ -72,10 +95,8 @@ class Pruner():
 
     def _to_tp_scheduler(self, schedule):
         "Convert Schedule object or callable to torch-pruning compatible scheduler"
-        # If it's a Schedule object, extract sched_func and build compatible function
         if isinstance(schedule, Schedule):
             return self._build_pruning_schedule(schedule.sched_func)
-        # Otherwise assume it's already a compatible callable (like linear_scheduler)
         return schedule
 
     def _resolve_pruning_ratio_dict(self, ratio_dict):
@@ -86,30 +107,41 @@ class Pruner():
             if isinstance(key, str):
                 if key in name_to_module:
                     module = name_to_module[key]
-                    # Normalize ratio to 0-1 range
                     resolved[module] = ratio / 100 if ratio > 1 else ratio
                 else:
                     print(f"Warning: Layer '{key}' not found in model, skipping")
             elif isinstance(key, nn.Module):
                 resolved[key] = ratio / 100 if ratio > 1 else ratio
         return resolved
-          
-    def prune_model(self):
-        "Execute one pruning step and restore attention layer configurations"
-        self.pruner.step()
-        self.restore_attention_layers()
 
+    def _detect_attention_heads(self,
+                                 model: nn.Module  # The model to analyze
+    ):
+        "Detect attention layers with QKV projections and populate num_heads mapping"
+        for module in model.modules():
+            # nn.MultiheadAttention uses raw parameters (in_proj_weight), not Linear
+            # submodules — torch-pruning's head pruning requires .out_features on qkv
+            # layers, so only timm-style attention (with .qkv Linear) is supported.
+            if isinstance(module, nn.MultiheadAttention):
+                self.ignored_layers.append(module)
+                continue
+            if hasattr(module, 'num_heads'):
+                if hasattr(module, 'qkv'):
+                    self.num_heads[module.qkv] = module.num_heads
+                elif hasattr(module, 'qkv_proj'):
+                    self.num_heads[module.qkv_proj] = module.num_heads
+        self._original_num_heads = dict(self.num_heads)
 
-    def get_linear_layers_to_ignore(self, 
+    def get_linear_layers_to_ignore(self,
                                     model: nn.Module  # The model to analyze
     ):
         "Find and ignore output Linear layers to preserve model output dimensions"
         try:
             traced = symbolic_trace(model)
             for node in traced.graph.nodes:
-                if node.op == "output":  # Identify the output
+                if node.op == "output":
                     for input_node in node.all_input_nodes:
-                        if input_node.target:  # Find the corresponding layer
+                        if input_node.target:
                             module = dict(model.named_modules()).get(input_node.target)
                             if isinstance(module, torch.nn.Linear):
                                 self.ignored_layers.append(module)
@@ -117,44 +149,38 @@ class Pruner():
         except Exception as e:
             print(f"Could not trace model for output layer detection: {e}")
 
-
-    def get_attention_layers_to_ignore(self, 
-                                       model: nn.Module  # The model to analyze
-    ):
-        "Find and ignore attention layers (qkv projections) to preserve attention structure"
-        for module in model.modules():
-            if hasattr(module, 'num_heads'):
-                if hasattr(module, 'qkv'):
-                    self.ignored_layers.append(module.qkv)
-                    self.num_heads[module.qkv] = module.num_heads
-                    print(f"Attention layer ignored: {module.qkv}, num_heads={module.num_heads}")
-                elif hasattr(module, 'qkv_proj'):
-                    self.ignored_layers.append(module.qkv_proj)
-                    self.num_heads[module.qkv_proj] = module.num_heads
-                    print(f"Attention layer ignored: {module.qkv_proj}, num_heads={module.num_heads}")
-
-    
-    def get_ignored_layers(self, 
+    def get_ignored_layers(self,
                            model: nn.Module  # The model to analyze
     ):
         "Build list of layers to ignore during pruning"
         self.ignored_layers = []
         self.get_linear_layers_to_ignore(model)
-        self.get_attention_layers_to_ignore(model)
+        self._detect_attention_heads(model)
+        # Ignore QKV layers only when head pruning is disabled
+        if not self.prune_num_heads and self.head_pruning_ratio == 0:
+            for layer in self.num_heads:
+                self.ignored_layers.append(layer)
+        if self.num_heads:
+            action = "will be pruned" if self.prune_num_heads else "ignored"
+            print(f"Detected {len(self.num_heads)} attention layer(s) ({action})")
         print(f"Total ignored layers: {len(self.ignored_layers)}")
-    
-                
-    def restore_attention_layers(self):
-        "Restore num_heads and head_dim attributes after pruning attention layers"
-        for m in self.model.modules():
-            if hasattr(m, 'num_heads'):
-                if hasattr(m, 'qkv'):
-                    m.num_heads = self.num_heads[m.qkv]
-                    m.head_dim = m.qkv.out_features // (3 * m.num_heads)
-                elif hasattr(m, 'qkv_proj'):
-                    m.num_heads = self.num_heads[m.qkv_proj]
-                    m.head_dim = m.qkv_proj.out_features // (3 * m.num_heads)
 
+    def _sync_attention_attrs(self):
+        "Sync attention module attributes with torch-pruning's updated head counts"
+        for module in self.model.modules():
+            if not hasattr(module, 'num_heads') or isinstance(module, nn.MultiheadAttention):
+                continue
+            if hasattr(module, 'qkv') and module.qkv in self.pruner.num_heads:
+                module.num_heads = self.pruner.num_heads[module.qkv]
+                module.head_dim = module.qkv.out_features // (3 * module.num_heads)
+            elif hasattr(module, 'qkv_proj') and module.qkv_proj in self.pruner.num_heads:
+                module.num_heads = self.pruner.num_heads[module.qkv_proj]
+                module.head_dim = module.qkv_proj.out_features // (3 * module.num_heads)
+
+    def prune_model(self):
+        "Execute one pruning step and sync attention layer attributes"
+        self.pruner.step()
+        self._sync_attention_attrs()
 
     def group_importance(self, group):
         "Compute importance scores for a dependency group"
@@ -164,55 +190,65 @@ class Pruner():
             function.prune_linear_in_channels: 'column',
             function.prune_conv_in_channels: 'shared_kernel',
         }
-    
+
         group_imp = []
         group_idxs = []
-    
+
         for i, (dep, idxs) in enumerate(group):
             if dep.handler in handler_map:
                 impo = self.criteria(dep.target.module, handler_map.get(dep.handler), squeeze=True)
                 group_imp.append(impo)
                 group_idxs.append(group[i].root_idxs)
-    
+
         if len(group_imp) == 0:
             return torch.tensor([])
-            
+
         reduced_imp = torch.zeros_like(group_imp[0])
-    
+
         for i, (imp, root_idxs) in enumerate(zip(group_imp, group_idxs)):
             imp = imp.to('cpu')
             reduced_imp = reduced_imp.to('cpu')
             reduced_imp.scatter_add_(0, torch.tensor(root_idxs, device=imp.device), imp)
-    
+
         reduced_imp /= len(group_imp)
-    
+
         return reduced_imp.to(default_device())
 
     def print_sparsity(self) -> None:
         "Print pruning report showing channel counts and parameter reduction"
         total_params = 0
-        
+
         print("\nPruning Report:")
         print("-" * 85)
         print(f"{'Layer':<35} {'Type':<12} {'In Ch':<8} {'Out Ch':<8} {'Params':<12}")
         print("-" * 85)
-        
+
         for name, m in self.model.named_modules():
             if isinstance(m, (nn.Conv2d, nn.Linear)):
                 params = sum(p.numel() for p in m.parameters())
                 total_params += params
-                
+
                 if isinstance(m, nn.Conv2d):
                     in_ch, out_ch = m.in_channels, m.out_channels
                     layer_type = "Conv2d"
                 else:
                     in_ch, out_ch = m.in_features, m.out_features
                     layer_type = "Linear"
-                
+
                 print(f"{name:<35} {layer_type:<12} {in_ch:<8} {out_ch:<8} {params:<12,}")
-        
+
         print("-" * 85)
         reduction = 100 * (1 - total_params / self._original_params) if self._original_params > 0 else 0
         print(f"{'Total':<35} {'':<12} {'':<8} {'':<8} {total_params:<12,}")
         print(f"{'Original':<35} {'':<12} {'':<8} {'':<8} {self._original_params:<12,}")
         print(f"{'Reduction':<35} {'':<12} {'':<8} {'':<8} {reduction:>10.2f}%")
+
+        # Head count changes
+        if self._original_num_heads:
+            print(f"\n{'Attention Heads':}")
+            print("-" * 50)
+            for layer, orig in self._original_num_heads.items():
+                current = self.pruner.num_heads.get(layer, orig)
+                name = next((n for n, m in self.model.named_modules() if m is layer), str(layer))
+                status = f"{orig} -> {current}" if current != orig else f"{orig} (unchanged)"
+                print(f"  {name:<33} {status}")
