@@ -53,6 +53,7 @@ class PruneCallback(Callback):
             criteria=self.criteria,
             pruning_ratio=self.pruning_ratio, 
             context=self.context,
+            example_inputs=self.example_inputs,
             iterative_steps=total_training_steps, 
             schedule=pruning_schedule,
             *self.extra_args, 
