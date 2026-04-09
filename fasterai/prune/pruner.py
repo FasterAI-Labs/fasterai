@@ -23,6 +23,28 @@ from torch.fx import symbolic_trace
 # %% ../../nbs/prune/pruner.ipynb #63acddeb-f30e-448b-a397-d4cac2adba7a
 from ..core.schedule import Schedule
 
+def _pruning_compatible_forward(self, x, attn_mask=None):
+    "Attention forward using reshape(B, N, -1) for pruning compatibility"
+    B, N, C = x.shape
+    qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+    q, k, v = qkv.unbind(0)
+    q, k = self.q_norm(q), self.k_norm(k)
+    if self.fused_attn:
+        x = F.scaled_dot_product_attention(
+            q, k, v, attn_mask=attn_mask,
+            dropout_p=self.attn_drop.p if self.training else 0.)
+    else:
+        q = q * self.scale
+        attn = q @ k.transpose(-2, -1)
+        if attn_mask is not None: attn = attn + attn_mask
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        x = attn @ v
+    x = x.transpose(1, 2).reshape(B, N, -1)
+    x = self.proj(x)
+    x = self.proj_drop(x)
+    return x
+
 class Pruner():
     "Structured pruning for neural networks using torch_pruning"
     def __init__(self,
@@ -114,6 +136,16 @@ class Pruner():
                 resolved[key] = ratio / 100 if ratio > 1 else ratio
         return resolved
 
+    def _patch_attention_forward(self,
+                                  module: nn.Module  # Attention module with .qkv
+    ):
+        "Patch attention forward to use reshape(B,N,-1) for pruning compatibility"
+        # Only patch if the module has the timm Attention interface
+        if not all(hasattr(module, a) for a in ('qkv', 'proj', 'proj_drop', 'attn_drop',
+                                                 'q_norm', 'k_norm', 'fused_attn', 'scale')):
+            return
+        module.forward = _pruning_compatible_forward.__get__(module, type(module))
+
     def _detect_attention_heads(self,
                                  model: nn.Module  # The model to analyze
     ):
@@ -128,6 +160,9 @@ class Pruner():
             if hasattr(module, 'num_heads'):
                 if hasattr(module, 'qkv'):
                     self.num_heads[module.qkv] = module.num_heads
+                    # Patch forward to use reshape(B,N,-1) — required for head pruning
+                    # (official torch-pruning pattern from prune_timm_vit.py)
+                    if self.prune_num_heads: self._patch_attention_forward(module)
                 elif hasattr(module, 'qkv_proj'):
                     self.num_heads[module.qkv_proj] = module.num_heads
         self._original_num_heads = dict(self.num_heads)
