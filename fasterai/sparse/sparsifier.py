@@ -193,13 +193,13 @@ class Sparsifier():
         self.threshold = None
             
     def _rounded_sparsity(self, 
-                         n_to_prune: int,  # Number of elements to prune
+                         n_to_keep: int,  # Number of elements to keep
                          round_to: int     # Rounding value
     ) -> int:
         "Round the number of elements to keep to a multiple of round_to"
         if round_to == 0:
             raise ValueError("round_to must be non-zero")
-        return max(round_to * torch.ceil(n_to_prune / round_to), round_to)
+        return max(round_to * torch.ceil(n_to_keep / round_to), round_to)
     
     def _compute_scores(self, 
                        m: nn.Module,   # Module to compute scores for
