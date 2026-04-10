@@ -63,6 +63,7 @@ class Pruner():
         store_attr()
         self.num_heads = {}
         self._original_num_heads = {}
+        self._heads_pruned = False
         self._original_params = sum(p.numel() for p in model.parameters())
 
         # Normalize head_pruning_ratio
@@ -200,6 +201,22 @@ class Pruner():
             print(f"Detected {len(self.num_heads)} attention layer(s) ({action})")
         print(f"Total ignored layers: {len(self.ignored_layers)}")
 
+    def _freeze_head_pruning(self):
+        "Disable further head pruning after first application to prevent over-pruning"
+        # torch-pruning computes head removal from current count (not original),
+        # so repeated steps would halve heads each time (6→3→1→0). We freeze
+        # the head pruning ratios after the first step that modifies heads.
+        if not self._heads_pruned and self.prune_num_heads:
+            heads_changed = any(
+                self.pruner.num_heads.get(layer, orig) != orig
+                for layer, orig in self._original_num_heads.items()
+            )
+            if heads_changed:
+                self._heads_pruned = True
+                for i in range(len(self.pruner.per_step_head_pruning_ratio)):
+                    if i > self.pruner.current_step:
+                        self.pruner.per_step_head_pruning_ratio[i] = 0.0
+
     def _sync_attention_attrs(self):
         "Sync attention module attributes with torch-pruning's updated head counts"
         for module in self.model.modules():
@@ -216,6 +233,7 @@ class Pruner():
         "Execute one pruning step and sync attention layer attributes"
         self.pruner.step()
         self._sync_attention_attrs()
+        self._freeze_head_pruning()
 
     def group_importance(self, group):
         "Compute importance scores for a dependency group"
