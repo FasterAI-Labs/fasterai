@@ -43,10 +43,10 @@ class FC_Decomposer:
     ) -> nn.Sequential:
         "Perform SVD decomposition on a single Linear layer"
         W = layer.weight.data
-        U, S, V = torch.svd(W)
+        U, S, Vh = torch.linalg.svd(W, full_matrices=False)
         L = max(1, int((1.-percent_removed) * S.shape[0]))
         W1 = U[:,:L]
-        W2 = torch.diag(S[:L]) @ V[:,:L].t()
+        W2 = torch.diag(S[:L]) @ Vh[:L]
         layer_1 = nn.Linear(in_features=layer.in_features, 
                     out_features=L, bias=False)
         layer_1.weight.data = W2
