@@ -137,6 +137,8 @@ def match_feature_layers(
 ) -> dict[str, list[str]]:
     "Find pairs of layers with matching spatial resolutions between student and teacher"
     def _collect_shapes(model, x):
+        device = next(model.parameters()).device
+        x = x.to(device)
         shapes = {}
         hooks = []
         for name, m in model.named_modules():
