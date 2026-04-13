@@ -31,7 +31,7 @@ def _partial_tucker(weight, ranks, n_iter=10, tol=1e-4):
     core = torch.einsum('oihw, or, is -> rshw', weight, U0, U1)
     return core, [U0, U1]
 
-VALID_METHODS = frozenset({'tucker', 'svd'})
+VALID_METHODS = frozenset({'tucker', 'svd', 'spatial', 'cp'})
 
 class Conv_Decomposer:
     "Decompose Conv2d layers to reduce parameters and FLOPs"
@@ -41,20 +41,23 @@ class Conv_Decomposer:
     def decompose(self,
                   model: nn.Module,                       # The model to decompose
                   percent_removed: float = 0.5,           # Fraction of rank to remove [0, 1)
-                  method: str = 'tucker',                 # 'tucker' (3 layers) or 'svd' (2 layers)
+                  method: str = 'tucker',                 # 'tucker', 'svd', 'spatial', or 'cp'
                   energy_threshold: float | None = None,  # Auto rank via energy retention (0-1)
                   layers: list[str] | None = None,        # Layer names to decompose (None = all eligible)
                   exclude: list[str] | None = None,       # Layer names to skip
                   n_iter: int = 10,                       # Max HOOI iterations (tucker only)
                   tol: float = 1e-4,                      # HOOI convergence tolerance (tucker only)
     ) -> nn.Module:
-        "Decompose eligible Conv2d layers using Tucker (3 layers) or SVD (2 layers)."
+        "Decompose eligible Conv2d layers using the specified method."
         if method not in VALID_METHODS:
             raise ValueError(f"method must be one of {VALID_METHODS}, got {method!r}")
         if energy_threshold is None and not (0 <= percent_removed < 1):
             raise ValueError(f"percent_removed must be in range [0, 1), got {percent_removed}")
         if energy_threshold is not None and not (0 < energy_threshold <= 1):
             raise ValueError(f"energy_threshold must be in range (0, 1], got {energy_threshold}")
+
+        decompose_fn = {'tucker': self.Tucker, 'svd': self.SVD,
+                        'spatial': self.Spatial, 'cp': self.CP}[method]
 
         new_model = copy.deepcopy(model)
         for name, module in list(new_model.named_modules()):
@@ -64,9 +67,9 @@ class Conv_Decomposer:
                 parent_name, _, child_name = name.rpartition('.')
                 parent = new_model.get_submodule(parent_name) if parent_name else new_model
                 if method == 'tucker':
-                    replacement = self.Tucker(module, percent_removed, energy_threshold, n_iter, tol)
+                    replacement = decompose_fn(module, percent_removed, energy_threshold, n_iter, tol)
                 else:
-                    replacement = self.SVD(module, percent_removed, energy_threshold)
+                    replacement = decompose_fn(module, percent_removed, energy_threshold)
                 setattr(parent, child_name, replacement)
         return new_model
 
@@ -75,12 +78,11 @@ class Conv_Decomposer:
             percent_removed: float = 0.5,            # Fraction of rank to remove
             energy_threshold: float | None = None,   # Auto rank via energy retention
     ) -> nn.Sequential:
-        "SVD decomposition into 2 layers: spatial at reduced rank + pointwise expansion"
+        "SVD: 2 layers — spatial at reduced output rank + pointwise expansion"
         W = layer.weight.data
         C_out, C_in = W.shape[:2]
         K = layer.kernel_size
 
-        # Reshape to 2D: (C_out, C_in*K*K), apply SVD
         W_2d = W.reshape(C_out, -1)
         U, S, Vh = torch.linalg.svd(W_2d, full_matrices=False)
 
@@ -89,20 +91,124 @@ class Conv_Decomposer:
         else:
             R = max(1, int((1 - percent_removed) * min(C_out, C_in)))
 
-        # Layer 1: spatial conv at reduced rank (C_in → R)
-        W1 = (torch.diag(S[:R]) @ Vh[:R]).reshape(R, C_in, *K)
         first = nn.Conv2d(C_in, R, K, stride=layer.stride,
                           padding=layer.padding, dilation=layer.dilation, bias=False)
-        first.weight.data = W1
+        first.weight.data = (torch.diag(S[:R]) @ Vh[:R]).reshape(R, C_in, *K)
 
-        # Layer 2: pointwise expansion (R → C_out)
-        W2 = U[:, :R]
         last = nn.Conv2d(R, C_out, 1, bias=layer.bias is not None)
-        last.weight.data = W2.unsqueeze(-1).unsqueeze(-1)
+        last.weight.data = U[:, :R].unsqueeze(-1).unsqueeze(-1)
         if layer.bias is not None:
             last.bias.data = layer.bias.data
 
         return nn.Sequential(first, last)
+
+    def Spatial(self,
+                layer: nn.Conv2d,                       # The Conv2d layer to decompose
+                percent_removed: float = 0.5,           # Fraction of spatial rank to remove
+                energy_threshold: float | None = None,  # Auto rank via energy retention
+    ) -> nn.Sequential:
+        "Spatial separable: 2 layers — K×1 vertical + 1×K horizontal per filter"
+        W = layer.weight.data
+        C_out, C_in = W.shape[:2]
+        Kh, Kw = layer.kernel_size
+
+        # SVD on each filter's spatial matrix, average the rank across filters
+        # Use first filter to determine rank
+        S_sample = torch.linalg.svd(W[0, 0].reshape(Kh, Kw), full_matrices=False)[1]
+        if energy_threshold is not None:
+            R = _rank_from_energy(S_sample, energy_threshold)
+        else:
+            R = max(1, int((1 - percent_removed) * min(Kh, Kw)))
+
+        # Vertical: Conv2d(C_in, C_out*R, Kh×1)
+        # Horizontal: Conv2d(C_out*R, C_out, 1×Kw, groups=C_out)
+        # Build weights by SVD of each filter's spatial component
+        W_vert = torch.zeros(C_out * R, C_in, Kh, 1)
+        W_horiz = torch.zeros(C_out, R, 1, Kw)
+
+        for o in range(C_out):
+            for i in range(C_in):
+                U, S, Vh = torch.linalg.svd(W[o, i].reshape(Kh, Kw), full_matrices=False)
+                for r in range(R):
+                    W_vert[o * R + r, i, :, 0] = U[:, r] * S[r].sqrt()
+                    W_horiz[o, r, 0, :] += Vh[r] * S[r].sqrt() / C_in
+
+        vert = nn.Conv2d(C_in, C_out * R, (Kh, 1),
+                         stride=(layer.stride[0], 1),
+                         padding=(layer.padding[0], 0), bias=False)
+        vert.weight.data = W_vert
+
+        horiz = nn.Conv2d(C_out * R, C_out, (1, Kw), groups=C_out,
+                          stride=(1, layer.stride[1]),
+                          padding=(0, layer.padding[1]),
+                          bias=layer.bias is not None)
+        horiz.weight.data = W_horiz
+        if layer.bias is not None:
+            horiz.bias.data = layer.bias.data
+
+        return nn.Sequential(vert, horiz)
+
+    def CP(self,
+           layer: nn.Conv2d,                        # The Conv2d layer to decompose
+           percent_removed: float = 0.5,            # Fraction of rank to remove
+           energy_threshold: float | None = None,   # Auto rank via energy retention
+    ) -> nn.Sequential:
+        "CP: 4 layers — pointwise compress + depthwise vertical + depthwise horizontal + pointwise expand"
+        W = layer.weight.data
+        C_out, C_in = W.shape[:2]
+        Kh, Kw = layer.kernel_size
+
+        # Determine rank from mode-0 unfolding
+        S0 = torch.linalg.svd(_unfold(W, 0), full_matrices=False)[1]
+        if energy_threshold is not None:
+            R = _rank_from_energy(S0, energy_threshold)
+        else:
+            R = max(1, int((1 - percent_removed) * min(C_out, C_in)))
+
+        # Full SVD on mode-0 unfolding: (C_out, C_in*Kh*Kw)
+        W_2d = W.reshape(C_out, -1)
+        U, S, Vh = torch.linalg.svd(W_2d, full_matrices=False)
+
+        # Vh[:R] has shape (R, C_in*Kh*Kw) → reshape to (R, C_in, Kh, Kw)
+        V_4d = Vh[:R].reshape(R, C_in, Kh, Kw)
+
+        # Further decompose spatial dims of V_4d via SVD per rank component
+        W_pw_in = torch.zeros(R, C_in, 1, 1)
+        W_dw_v = torch.zeros(R, 1, Kh, 1)
+        W_dw_h = torch.zeros(R, 1, 1, Kw)
+
+        for r in range(R):
+            # Average spatial component across input channels
+            spatial_avg = V_4d[r].mean(dim=0)  # (Kh, Kw)
+            u_s, s_s, vh_s = torch.linalg.svd(spatial_avg.reshape(Kh, Kw), full_matrices=False)
+            W_dw_v[r, 0, :, 0] = u_s[:, 0] * s_s[0].sqrt()
+            W_dw_h[r, 0, 0, :] = vh_s[0] * s_s[0].sqrt()
+            # Channel component: norm of each input channel's contribution
+            W_pw_in[r, :, 0, 0] = V_4d[r].pow(2).sum(dim=(1, 2)).sqrt() * S[r].sqrt()
+
+        # Layer 1: pointwise input compression (C_in → R)
+        pw_in = nn.Conv2d(C_in, R, 1, bias=False)
+        pw_in.weight.data = W_pw_in
+
+        # Layer 2: depthwise vertical (R → R, Kh×1)
+        dw_v = nn.Conv2d(R, R, (Kh, 1), groups=R,
+                         stride=(layer.stride[0], 1),
+                         padding=(layer.padding[0], 0), bias=False)
+        dw_v.weight.data = W_dw_v
+
+        # Layer 3: depthwise horizontal (R → R, 1×Kw)
+        dw_h = nn.Conv2d(R, R, (1, Kw), groups=R,
+                         stride=(1, layer.stride[1]),
+                         padding=(0, layer.padding[1]), bias=False)
+        dw_h.weight.data = W_dw_h
+
+        # Layer 4: pointwise output expansion (R → C_out)
+        pw_out = nn.Conv2d(R, C_out, 1, bias=layer.bias is not None)
+        pw_out.weight.data = (U[:, :R] * S[:R].sqrt().unsqueeze(0)).unsqueeze(-1).unsqueeze(-1)
+        if layer.bias is not None:
+            pw_out.bias.data = layer.bias.data
+
+        return nn.Sequential(pw_in, dw_v, dw_h, pw_out)
 
     def Tucker(self,
                layer: nn.Conv2d,                        # The Conv2d layer to decompose
@@ -111,7 +217,7 @@ class Conv_Decomposer:
                n_iter: int = 10,                        # Max HOOI iterations
                tol: float = 1e-4,                       # HOOI convergence tolerance
     ) -> nn.Sequential:
-        "Tucker decomposition into 3 layers: pointwise compress + spatial + pointwise expand"
+        "Tucker: 3 layers — pointwise compress + spatial + pointwise expand"
         W = layer.weight.data
         C_out, C_in = W.shape[:2]
 
