@@ -51,9 +51,6 @@ website:
       - section: Tutorials
         contents:
         - tutorials/walkthrough.ipynb
-        - section: Core
-          contents:
-          - tutorials/core/criteria_guide.ipynb
         - section: Sparse
           contents:
           - tutorials/sparse/schedules.ipynb
