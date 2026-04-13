@@ -1,0 +1,1934 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.37">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="When to use INT8 static, INT8 weight-only, INT4, and FP16">
+
+<title>Quantization Methods Compared – fasterai</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.min.js" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" crossorigin="anonymous"></script><script src="../../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../../">
+<script src="../../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../../site_libs/quarto-html/popper.min.js"></script>
+<script src="../../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../../site_libs/quarto-html/quarto-syntax-highlighting-7f8f88aac4f3542376d5c11b86a4c14d.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../../site_libs/quarto-html/quarto-syntax-highlighting-dark-d0ae9245876894da5ac7e18953ecc5cc.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<script src="../../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../../site_libs/bootstrap/bootstrap-ea0c437a23fd92a04076a5168d75d718.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../../site_libs/bootstrap/bootstrap-dark-e2b3ff36e37d84e1cb6f3676b56d5795.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-424WWZFZ5F"></script>
+
+<script type="text/javascript">
+
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-424WWZFZ5F', { 'anonymize_ip': true});
+</script>
+<script src="https://cdn.jsdelivr.net/npm/requirejs@2.3.6/require.min.js" integrity="sha384-c9c+LnTbwQ3aujuU7ULEPVvgLs+Fn6fJUvIGTsuu1ZcCf11fiEubah0ttpca4ntM sha384-6V1/AdqZRWk1KAlWbKBlGhN7VG4iE/yAZcO6NZPMF8od0vukrvr0tg4qY6NSrItx" crossorigin="anonymous"></script>
+
+<script type="application/javascript">define('jquery', [],function() {return window.jQuery;})</script>
+
+
+<link rel="stylesheet" href="../../styles.css">
+<meta property="og:title" content="Quantization Methods Compared – fasterai">
+<meta property="og:description" content="When to use INT8 static, INT8 weight-only, INT4, and FP16">
+<meta property="og:site_name" content="fasterai">
+<meta name="twitter:title" content="Quantization Methods Compared – fasterai">
+<meta name="twitter:description" content="When to use INT8 static, INT8 weight-only, INT4, and FP16">
+<meta name="twitter:creator" content="@nathanhubens">
+<meta name="twitter:site" content="@fasterai">
+<meta name="twitter:card" content="summary">
+</head>
+
+<body class="nav-sidebar floating nav-fixed quarto-dark"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = true;
+    const darkModeDefault = authorPrefersDark;
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../../index.html">
+    <span class="navbar-title">fasterai</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="mailto:nathan.hubens@gmail.com?subject=Hello"> <i class="bi bi-chat-right-text" role="img">
+</i> 
+<span class="menu-text">Contact Me</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://github.com/FasterAI-Labs/fasterai/issues"> <i class="bi bi-bug" role="img">
+</i> 
+<span class="menu-text">Report an Issue</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://discord.gg/32BwhJSB9u"> <i class="bi bi-discord" role="img">
+</i> 
+<span class="menu-text">Join the Community</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/FasterAI-Labs/fasterai"> <i class="bi bi-github" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://twitter.com/fasterai"> <i class="bi bi-twitter" role="img" aria-label="FasterAI Twitter">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="Toggle dark mode"><i class="bi"></i></a>
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item">Quantization Methods Compared</li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../overview.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Overview</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../quickstart.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quick Start</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false">
+ <span class="menu-text">Tutorials</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/walkthrough.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Walkthrough</span></a>
+  </div>
+</li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false">
+ <span class="menu-text">Sparse</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/sparse/schedules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Schedules</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/sparse/sparsifier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsifier</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/sparse/sparsify_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsify Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/sparse/lottery_ticket.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Lottery Ticket Hypothesis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/sparse/transformers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Transformers</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false">
+ <span class="menu-text">Prune</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/prune/pruner.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Pruner Tutorial</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/prune/prune_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/prune/yolov8.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">YOLOV8</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+ <span class="menu-text">Distill</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/distill/distill_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">KnowledgeDistillation Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/distill/losses_guide.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Distillation Losses Guide</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
+ <span class="menu-text">Regularize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/regularize/regularize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Regularize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
+ <span class="menu-text">Quantize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/quantize/quantize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
+ <span class="menu-text">Misc</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/misc/bn_folding.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">BatchNorm Folding</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/misc/fc_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Fully-Connected layers decomposition</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
+ <span class="menu-text">Export</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/export/onnx_export.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">ONNX Export Tutorial</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false">
+ <span class="menu-text">Analyze</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../tutorials/analyze/sensitivity.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sensitivity Analysis</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false">
+ <span class="menu-text">Core</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../core/granularity.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Granularity</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../core/criteria.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Criteria</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../core/schedules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Schedules</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false">
+ <span class="menu-text">Sparse</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../sparse/sparsifier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsifier</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../sparse/sparsify_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsify Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false">
+ <span class="menu-text">Prune</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../prune/pruner.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Pruner</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../prune/prune_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false">
+ <span class="menu-text">Distill</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../distill/distillation_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Knowledge Distillation</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../distill/losses.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Distillation Losses</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="false">
+ <span class="menu-text">Quantize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-14" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../quantize/quantizer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantizer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../quantize/quantize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="false">
+ <span class="menu-text">Regularize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-15" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../regularize/regularize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Regularize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="false">
+ <span class="menu-text">Analyze</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-16" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../analyze/sensitivity.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sensitivity Analysis</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="false">
+ <span class="menu-text">Misc</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-17" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../misc/bn_folding.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Batch Norm Folding</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../misc/fc_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Fully-Connected Layers Decomposer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../misc/conv_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Check parameter reduction</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../misc/cpu_optimizer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">CPU Optimizer</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="false">
+ <span class="menu-text">Export</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-18" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../../export/onnx_exporter.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">ONNX Exporter</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#overview" id="toc-overview" class="nav-link active" data-scroll-target="#overview">Overview</a>
+  <ul class="collapse">
+  <li><a href="#quick-guide" id="toc-quick-guide" class="nav-link" data-scroll-target="#quick-guide">Quick Guide</a></li>
+  </ul></li>
+  <li><a href="#baseline-fp32" id="toc-baseline-fp32" class="nav-link" data-scroll-target="#baseline-fp32">1. Baseline (FP32)</a></li>
+  <li><a href="#fp16-half-precision" id="toc-fp16-half-precision" class="nav-link" data-scroll-target="#fp16-half-precision">2. FP16 (Half Precision)</a></li>
+  <li><a href="#w8a8-static-legacy-best-for-cpu" id="toc-w8a8-static-legacy-best-for-cpu" class="nav-link" data-scroll-target="#w8a8-static-legacy-best-for-cpu">3. W8A8 Static (Legacy — Best for CPU)</a></li>
+  <li><a href="#w8a32-weight-only-torchao" id="toc-w8a32-weight-only-torchao" class="nav-link" data-scroll-target="#w8a32-weight-only-torchao">4. W8A32 Weight-Only (torchao)</a></li>
+  <li><a href="#w8a8-dynamic-torchao" id="toc-w8a8-dynamic-torchao" class="nav-link" data-scroll-target="#w8a8-dynamic-torchao">5. W8A8 Dynamic (torchao)</a></li>
+  <li><a href="#w4a32-int4-weight-only" id="toc-w4a32-int4-weight-only" class="nav-link" data-scroll-target="#w4a32-int4-weight-only">6. W4A32 (INT4 Weight-Only)</a></li>
+  <li><a href="#w4a16-int4-weights-fp16-activations" id="toc-w4a16-int4-weights-fp16-activations" class="nav-link" data-scroll-target="#w4a16-int4-weights-fp16-activations">7. W4A16 (INT4 Weights + FP16 Activations)</a></li>
+  <li><a href="#gpu-benchmarks" id="toc-gpu-benchmarks" class="nav-link" data-scroll-target="#gpu-benchmarks">GPU Benchmarks</a></li>
+  <li><a href="#tensorrt-benchmarks" id="toc-tensorrt-benchmarks" class="nav-link" data-scroll-target="#tensorrt-benchmarks">TensorRT Benchmarks</a></li>
+  <li><a href="#comparison" id="toc-comparison" class="nav-link" data-scroll-target="#comparison">Comparison</a></li>
+  <li><a href="#when-to-use-what" id="toc-when-to-use-what" class="nav-link" data-scroll-target="#when-to-use-what">When to Use What</a>
+  <ul class="collapse">
+  <li><a href="#cpu-deployment" id="toc-cpu-deployment" class="nav-link" data-scroll-target="#cpu-deployment">CPU Deployment</a></li>
+  <li><a href="#gpu-deployment-resnet-50-batch32-rtx-5090" id="toc-gpu-deployment-resnet-50-batch32-rtx-5090" class="nav-link" data-scroll-target="#gpu-deployment-resnet-50-batch32-rtx-5090">GPU Deployment (ResNet-50, batch=32, RTX 5090)</a></li>
+  <li><a href="#rules-of-thumb" id="toc-rules-of-thumb" class="nav-link" data-scroll-target="#rules-of-thumb">Rules of Thumb</a></li>
+  </ul></li>
+  <li><a href="#see-also" id="toc-see-also" class="nav-link" data-scroll-target="#see-also">See Also</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/FasterAI-Labs/fasterai/issues/new" class="toc-action"><i class="bi bi-github"></i>Report an issue</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Quantization Methods Compared</h1>
+</div>
+
+<div>
+  <div class="description">
+    When to use INT8 static, INT8 weight-only, INT4, and FP16
+  </div>
+</div>
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<!-- WARNING: THIS FILE WAS AUTOGENERATED! DO NOT EDIT! -->
+<section id="overview" class="level2">
+<h2 class="anchored" data-anchor-id="overview">Overview</h2>
+<p>Not all quantization methods are equal. The best choice depends on your <strong>deployment target</strong> (CPU vs GPU) and what you’re optimizing for (speed vs size).</p>
+<p>This notebook compares every quantization method available in fasterai — plus TensorRT — on real models, measuring size, latency, and accuracy.</p>
+<section id="quick-guide" class="level3">
+<h3 class="anchored" data-anchor-id="quick-guide">Quick Guide</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 48%">
+<col style="width: 36%">
+<col style="width: 15%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Deploying on…</th>
+<th>Best method</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Intel/AMD CPU</strong></td>
+<td>W8A8 static (legacy)</td>
+<td>Uses native INT8 kernels (VNNI/AMX)</td>
+</tr>
+<tr class="even">
+<td><strong>NVIDIA GPU (CNNs)</strong></td>
+<td>TensorRT FP16</td>
+<td>5.4x speedup — FP16 Tensor Cores beat INT8 on modern GPUs</td>
+</tr>
+<tr class="odd">
+<td><strong>NVIDIA GPU (no TensorRT)</strong></td>
+<td>FP16 + torch.compile</td>
+<td>3.3x speedup, pure PyTorch</td>
+</tr>
+<tr class="even">
+<td><strong>Mobile (ARM)</strong></td>
+<td>W8A8 static (qnnpack)</td>
+<td>Optimized ARM INT8 kernels</td>
+</tr>
+<tr class="odd">
+<td><strong>Model download size</strong></td>
+<td>W4A32 (IntxWeightOnlyConfig)</td>
+<td>4x smaller than FP32</td>
+</tr>
+<tr class="even">
+<td><strong>Memory-constrained GPU</strong></td>
+<td>W4A16</td>
+<td>Half precision + INT4 weights</td>
+</tr>
+</tbody>
+</table>
+<div id="setup" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> torch, torch.nn <span class="im">as</span> nn, time</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> torchvision.models <span class="im">import</span> resnet18</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> copy <span class="im">import</span> deepcopy</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fastai.vision.<span class="bu">all</span> <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.quantize.quantizer <span class="im">import</span> Quantizer</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Setup</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>path <span class="op">=</span> untar_data(URLs.PETS)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>files <span class="op">=</span> get_image_files(path<span class="op">/</span><span class="st">"images"</span>)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> label_func(f): <span class="cf">return</span> f[<span class="dv">0</span>].isupper()</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>dls <span class="op">=</span> ImageDataLoaders.from_name_func(path, files, label_func, item_tfms<span class="op">=</span>Resize(<span class="dv">64</span>))</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>learn <span class="op">=</span> vision_learner(dls, resnet18, metrics<span class="op">=</span>accuracy)</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>learn.unfreeze()</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>learn.fit(<span class="dv">3</span>)</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> learn.model.cpu().<span class="bu">eval</span>()</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>sample <span class="op">=</span> dls.one_batch()[<span class="dv">0</span>][:<span class="dv">1</span>].cpu()</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Baseline model: </span><span class="sc">{</span><span class="bu">sum</span>(p.numel() <span class="cf">for</span> p <span class="kw">in</span> model.parameters())<span class="sc">:,}</span><span class="ss"> params"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>Skipping import of cpp extensions due to incompatible torch version 2.9.1+cu128 for torchao version 0.16.0             Please see https://github.com/pytorch/ao/issues/2919 for more info</code></pre>
+</div>
+<div class="cell-output cell-output-display">
+
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    progress:not([value]), progress:not([value])::-webkit-progress-bar {
+        background: repeating-linear-gradient(45deg, #7e7e7e, #7e7e7e 10px, #5c5c5c 10px, #5c5c5c 20px);
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style>
+</div>
+<div class="cell-output cell-output-display">
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">epoch</th>
+<th data-quarto-table-cell-role="th">train_loss</th>
+<th data-quarto-table-cell-role="th">valid_loss</th>
+<th data-quarto-table-cell-role="th">accuracy</th>
+<th data-quarto-table-cell-role="th">time</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>0</td>
+<td>0.591230</td>
+<td>0.337890</td>
+<td>0.849120</td>
+<td>00:02</td>
+</tr>
+<tr class="even">
+<td>1</td>
+<td>0.358244</td>
+<td>0.964525</td>
+<td>0.701624</td>
+<td>00:02</td>
+</tr>
+<tr class="odd">
+<td>2</td>
+<td>0.293346</td>
+<td>0.307885</td>
+<td>0.874154</td>
+<td>00:02</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Baseline model: 11,704,896 params</code></pre>
+</div>
+</div>
+<div id="helpers" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Helper: measure size, latency, accuracy</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> tempfile, os</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> measure(m, name, sample<span class="op">=</span>sample, n_runs<span class="op">=</span><span class="dv">50</span>):</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    m.<span class="bu">eval</span>()</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Size</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    tmp <span class="op">=</span> tempfile.mktemp(suffix<span class="op">=</span><span class="st">'.pt'</span>)</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    torch.save(m.state_dict(), tmp)</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    size_mb <span class="op">=</span> os.path.getsize(tmp) <span class="op">/</span> <span class="fl">1e6</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    os.remove(tmp)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Latency</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    x <span class="op">=</span> sample.to(dtype<span class="op">=</span><span class="bu">next</span>((p.dtype <span class="cf">for</span> p <span class="kw">in</span> m.parameters()), torch.float32))</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> torch.no_grad():</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">10</span>): m(x)  <span class="co"># warmup</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>        t0 <span class="op">=</span> time.time()</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_runs): m(x)</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>        latency <span class="op">=</span> (time.time() <span class="op">-</span> t0) <span class="op">/</span> n_runs <span class="op">*</span> <span class="dv">1000</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>name<span class="sc">:30s}</span><span class="ss">  size=</span><span class="sc">{</span>size_mb<span class="sc">:6.1f}</span><span class="ss"> MB  latency=</span><span class="sc">{</span>latency<span class="sc">:6.2f}</span><span class="ss"> ms"</span>)</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> {<span class="st">'name'</span>: name, <span class="st">'size_mb'</span>: size_mb, <span class="st">'latency_ms'</span>: latency}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+</section>
+<section id="baseline-fp32" class="level2">
+<h2 class="anchored" data-anchor-id="baseline-fp32">1. Baseline (FP32)</h2>
+<p>No quantization — full 32-bit floating point:</p>
+<div id="fp32" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>results <span class="op">=</span> []</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>results.append(measure(model, <span class="st">"FP32 (baseline)"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>FP32 (baseline)                 size=  46.9 MB  latency=  1.93 ms</code></pre>
+</div>
+</div>
+</section>
+<section id="fp16-half-precision" class="level2">
+<h2 class="anchored" data-anchor-id="fp16-half-precision">2. FP16 (Half Precision)</h2>
+<p>Simplest optimization — halves memory, faster on GPUs with Tensor Cores:</p>
+<div id="fp16" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>model_fp16 <span class="op">=</span> deepcopy(model).half()</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>results.append(measure(model_fp16, <span class="st">"FP16 (half)"</span>, sample<span class="op">=</span>sample.half()))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>FP16 (half)                     size=  23.5 MB  latency= 78.66 ms</code></pre>
+</div>
+</div>
+</section>
+<section id="w8a8-static-legacy-best-for-cpu" class="level2">
+<h2 class="anchored" data-anchor-id="w8a8-static-legacy-best-for-cpu">3. W8A8 Static (Legacy — Best for CPU)</h2>
+<p>Full INT8 quantization with calibration. Both weights AND activations are INT8. Uses hardware-specific kernels (VNNI on Intel, NEON on ARM).</p>
+<div id="w8a8" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>model_w8a8 <span class="op">=</span> Quantizer(backend<span class="op">=</span><span class="st">'x86'</span>, method<span class="op">=</span><span class="st">'static'</span>).quantize(deepcopy(model), dls.valid)</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>results.append(measure(model_w8a8, <span class="st">"W8A8 static (x86)"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stderr">
+<pre><code>/home/nathan/miniconda3/envs/dev/lib/python3.12/site-packages/torch/ao/quantization/observer.py:246: UserWarning: Please use quant_min and quant_max to specify the range for observers.                     reduce_range will be deprecated in a future release of PyTorch.
+  warnings.warn(</code></pre>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>W8A8 static (x86)               size=  11.9 MB  latency=  3.26 ms</code></pre>
+</div>
+<div class="cell-output cell-output-stderr">
+<pre><code>/home/nathan/miniconda3/envs/dev/lib/python3.12/site-packages/torch/_tensor.py:1654: UserWarning: All inputs of this cat operator must share the same quantization parameters. Otherwise large numerical inaccuracies may occur. (Triggered internally at /pytorch/aten/src/ATen/native/quantized/cpu/TensorShape.cpp:167.)
+  ret = func(*args, **kwargs)</code></pre>
+</div>
+</div>
+</section>
+<section id="w8a32-weight-only-torchao" class="level2">
+<h2 class="anchored" data-anchor-id="w8a32-weight-only-torchao">4. W8A32 Weight-Only (torchao)</h2>
+<p>Only weights are INT8. No calibration needed. Activations stay FP32. Good for model size reduction, minimal latency benefit on CPU.</p>
+<div id="w8a32" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>model_w8a32 <span class="op">=</span> Quantizer(backend<span class="op">=</span><span class="st">'torchao'</span>, method<span class="op">=</span><span class="st">'int8_weight_only'</span>).quantize(deepcopy(model))</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>results.append(measure(model_w8a32, <span class="st">"W8A32 weight-only (torchao)"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>W8A32 weight-only (torchao)     size=  45.3 MB  latency=  3.81 ms</code></pre>
+</div>
+</div>
+</section>
+<section id="w8a8-dynamic-torchao" class="level2">
+<h2 class="anchored" data-anchor-id="w8a8-dynamic-torchao">5. W8A8 Dynamic (torchao)</h2>
+<p>Weights are INT8, activations are dynamically quantized to INT8 at runtime. No calibration needed. Linear layers only.</p>
+<div id="w8a8dyn" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>model_w8a8d <span class="op">=</span> Quantizer(backend<span class="op">=</span><span class="st">'torchao'</span>, method<span class="op">=</span><span class="st">'int8_dynamic'</span>).quantize(deepcopy(model))</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>results.append(measure(model_w8a8d, <span class="st">"W8A8 dynamic (torchao)"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>W8A8 dynamic (torchao)          size=  45.3 MB  latency=  2.80 ms</code></pre>
+</div>
+</div>
+</section>
+<section id="w4a32-int4-weight-only" class="level2">
+<h2 class="anchored" data-anchor-id="w4a32-int4-weight-only">6. W4A32 (INT4 Weight-Only)</h2>
+<p>Weights compressed to 4 bits. Maximum size reduction. Works on Conv2d + Linear. Uses <code>IntxWeightOnlyConfig</code> from torchao.</p>
+<div id="w4a32" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> torchao.quantization <span class="im">import</span> quantize_, IntxWeightOnlyConfig</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>model_w4 <span class="op">=</span> deepcopy(model)</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>quantize_(model_w4, IntxWeightOnlyConfig(weight_dtype<span class="op">=</span>torch.int4),</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>          filter_fn<span class="op">=</span><span class="kw">lambda</span> mod, fqn: <span class="bu">isinstance</span>(mod, (nn.Conv2d, nn.Linear)))</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>results.append(measure(model_w4, <span class="st">"W4A32 (INT4 weight-only)"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>W4A32 (INT4 weight-only)        size=  12.0 MB  latency=  8.56 ms</code></pre>
+</div>
+</div>
+</section>
+<section id="w4a16-int4-weights-fp16-activations" class="level2">
+<h2 class="anchored" data-anchor-id="w4a16-int4-weights-fp16-activations">7. W4A16 (INT4 Weights + FP16 Activations)</h2>
+<p>Maximum compression: INT4 weights, FP16 compute. Best for GPU deployment with torch.compile.</p>
+<div id="w4a16" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>model_w4a16 <span class="op">=</span> deepcopy(model).half()</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>quantize_(model_w4a16, IntxWeightOnlyConfig(weight_dtype<span class="op">=</span>torch.int4),</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>          filter_fn<span class="op">=</span><span class="kw">lambda</span> mod, fqn: <span class="bu">isinstance</span>(mod, (nn.Conv2d, nn.Linear)))</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>results.append(measure(model_w4a16, <span class="st">"W4A16 (INT4 + half)"</span>, sample<span class="op">=</span>sample.half()))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>W4A16 (INT4 + half)             size=  11.9 MB  latency= 82.90 ms</code></pre>
+</div>
+</div>
+</section>
+<section id="gpu-benchmarks" class="level2">
+<h2 class="anchored" data-anchor-id="gpu-benchmarks">GPU Benchmarks</h2>
+<p>Same methods on GPU with <strong>ResNet-50</strong> at <strong>batch=32</strong> (more realistic workload):</p>
+<div id="gpu-bench" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> torch.cuda.is_available():</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>    device <span class="op">=</span> torch.device(<span class="st">'cuda'</span>)</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"GPU: </span><span class="sc">{</span>torch<span class="sc">.</span>cuda<span class="sc">.</span>get_device_name(<span class="dv">0</span>)<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># ResNet-50, batch=32 — realistic workload that saturates the GPU</span></span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>    <span class="im">from</span> torchvision.models <span class="im">import</span> resnet50 <span class="im">as</span> tv_resnet50</span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>    gpu_model <span class="op">=</span> tv_resnet50(weights<span class="op">=</span><span class="va">None</span>).<span class="bu">eval</span>()</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>    gpu_sample <span class="op">=</span> torch.randn(<span class="dv">32</span>, <span class="dv">3</span>, <span class="dv">224</span>, <span class="dv">224</span>)</span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> measure_gpu(m, name, sample_in<span class="op">=</span><span class="va">None</span>, n_runs<span class="op">=</span><span class="dv">50</span>):</span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> sample_in <span class="kw">is</span> <span class="va">None</span>: sample_in <span class="op">=</span> gpu_sample</span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>        m <span class="op">=</span> m.to(device).<span class="bu">eval</span>()</span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>        x <span class="op">=</span> sample_in.to(device, dtype<span class="op">=</span><span class="bu">next</span>((p.dtype <span class="cf">for</span> p <span class="kw">in</span> m.parameters()), torch.float32))</span>
+<span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb21-15"><a href="#cb21-15" aria-hidden="true" tabindex="-1"></a>        <span class="im">import</span> tempfile, os</span>
+<span id="cb21-16"><a href="#cb21-16" aria-hidden="true" tabindex="-1"></a>        tmp <span class="op">=</span> tempfile.mktemp(suffix<span class="op">=</span><span class="st">'.pt'</span>)</span>
+<span id="cb21-17"><a href="#cb21-17" aria-hidden="true" tabindex="-1"></a>        torch.save(m.cpu().state_dict(), tmp)</span>
+<span id="cb21-18"><a href="#cb21-18" aria-hidden="true" tabindex="-1"></a>        size_mb <span class="op">=</span> os.path.getsize(tmp) <span class="op">/</span> <span class="fl">1e6</span></span>
+<span id="cb21-19"><a href="#cb21-19" aria-hidden="true" tabindex="-1"></a>        os.remove(tmp)</span>
+<span id="cb21-20"><a href="#cb21-20" aria-hidden="true" tabindex="-1"></a>        m <span class="op">=</span> m.to(device)</span>
+<span id="cb21-21"><a href="#cb21-21" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb21-22"><a href="#cb21-22" aria-hidden="true" tabindex="-1"></a>        <span class="cf">with</span> torch.no_grad():</span>
+<span id="cb21-23"><a href="#cb21-23" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">10</span>): m(x)</span>
+<span id="cb21-24"><a href="#cb21-24" aria-hidden="true" tabindex="-1"></a>            torch.cuda.synchronize()</span>
+<span id="cb21-25"><a href="#cb21-25" aria-hidden="true" tabindex="-1"></a>            t0 <span class="op">=</span> time.time()</span>
+<span id="cb21-26"><a href="#cb21-26" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n_runs): m(x)</span>
+<span id="cb21-27"><a href="#cb21-27" aria-hidden="true" tabindex="-1"></a>            torch.cuda.synchronize()</span>
+<span id="cb21-28"><a href="#cb21-28" aria-hidden="true" tabindex="-1"></a>            latency <span class="op">=</span> (time.time() <span class="op">-</span> t0) <span class="op">/</span> n_runs <span class="op">*</span> <span class="dv">1000</span></span>
+<span id="cb21-29"><a href="#cb21-29" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb21-30"><a href="#cb21-30" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>name<span class="sc">:35s}</span><span class="ss">  size=</span><span class="sc">{</span>size_mb<span class="sc">:6.1f}</span><span class="ss"> MB  latency=</span><span class="sc">{</span>latency<span class="sc">:6.2f}</span><span class="ss"> ms"</span>)</span>
+<span id="cb21-31"><a href="#cb21-31" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> {<span class="st">'name'</span>: name, <span class="st">'size_mb'</span>: size_mb, <span class="st">'latency_ms'</span>: latency}</span>
+<span id="cb21-32"><a href="#cb21-32" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-33"><a href="#cb21-33" aria-hidden="true" tabindex="-1"></a>    gpu_results <span class="op">=</span> []</span>
+<span id="cb21-34"><a href="#cb21-34" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-35"><a href="#cb21-35" aria-hidden="true" tabindex="-1"></a>    <span class="co"># FP32</span></span>
+<span id="cb21-36"><a href="#cb21-36" aria-hidden="true" tabindex="-1"></a>    gpu_results.append(measure_gpu(deepcopy(gpu_model), <span class="st">"FP32 (baseline)"</span>))</span>
+<span id="cb21-37"><a href="#cb21-37" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-38"><a href="#cb21-38" aria-hidden="true" tabindex="-1"></a>    <span class="co"># FP16</span></span>
+<span id="cb21-39"><a href="#cb21-39" aria-hidden="true" tabindex="-1"></a>    gpu_results.append(measure_gpu(deepcopy(gpu_model).half(), <span class="st">"FP16 (half)"</span>,</span>
+<span id="cb21-40"><a href="#cb21-40" aria-hidden="true" tabindex="-1"></a>                                   sample_in<span class="op">=</span>gpu_sample.half()))</span>
+<span id="cb21-41"><a href="#cb21-41" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-42"><a href="#cb21-42" aria-hidden="true" tabindex="-1"></a>    <span class="co"># W8A32 torchao</span></span>
+<span id="cb21-43"><a href="#cb21-43" aria-hidden="true" tabindex="-1"></a>    m_w8 <span class="op">=</span> Quantizer(backend<span class="op">=</span><span class="st">'torchao'</span>, method<span class="op">=</span><span class="st">'int8_weight_only'</span>).quantize(deepcopy(gpu_model))</span>
+<span id="cb21-44"><a href="#cb21-44" aria-hidden="true" tabindex="-1"></a>    gpu_results.append(measure_gpu(m_w8, <span class="st">"W8A32 weight-only"</span>))</span>
+<span id="cb21-45"><a href="#cb21-45" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-46"><a href="#cb21-46" aria-hidden="true" tabindex="-1"></a>    <span class="co"># W4A32</span></span>
+<span id="cb21-47"><a href="#cb21-47" aria-hidden="true" tabindex="-1"></a>    <span class="im">from</span> torchao.quantization <span class="im">import</span> quantize_, IntxWeightOnlyConfig</span>
+<span id="cb21-48"><a href="#cb21-48" aria-hidden="true" tabindex="-1"></a>    m_w4 <span class="op">=</span> deepcopy(gpu_model)</span>
+<span id="cb21-49"><a href="#cb21-49" aria-hidden="true" tabindex="-1"></a>    quantize_(m_w4, IntxWeightOnlyConfig(weight_dtype<span class="op">=</span>torch.int4),</span>
+<span id="cb21-50"><a href="#cb21-50" aria-hidden="true" tabindex="-1"></a>              filter_fn<span class="op">=</span><span class="kw">lambda</span> mod, fqn: <span class="bu">isinstance</span>(mod, (nn.Conv2d, nn.Linear)))</span>
+<span id="cb21-51"><a href="#cb21-51" aria-hidden="true" tabindex="-1"></a>    gpu_results.append(measure_gpu(m_w4, <span class="st">"W4A32 (INT4 weight-only)"</span>))</span>
+<span id="cb21-52"><a href="#cb21-52" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-53"><a href="#cb21-53" aria-hidden="true" tabindex="-1"></a>    <span class="co"># W4A16</span></span>
+<span id="cb21-54"><a href="#cb21-54" aria-hidden="true" tabindex="-1"></a>    m_w4fp16 <span class="op">=</span> deepcopy(gpu_model).half()</span>
+<span id="cb21-55"><a href="#cb21-55" aria-hidden="true" tabindex="-1"></a>    quantize_(m_w4fp16, IntxWeightOnlyConfig(weight_dtype<span class="op">=</span>torch.int4),</span>
+<span id="cb21-56"><a href="#cb21-56" aria-hidden="true" tabindex="-1"></a>              filter_fn<span class="op">=</span><span class="kw">lambda</span> mod, fqn: <span class="bu">isinstance</span>(mod, (nn.Conv2d, nn.Linear)))</span>
+<span id="cb21-57"><a href="#cb21-57" aria-hidden="true" tabindex="-1"></a>    gpu_results.append(measure_gpu(m_w4fp16, <span class="st">"W4A16 (INT4 + half)"</span>,</span>
+<span id="cb21-58"><a href="#cb21-58" aria-hidden="true" tabindex="-1"></a>                                   sample_in<span class="op">=</span>gpu_sample.half()))</span>
+<span id="cb21-59"><a href="#cb21-59" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-60"><a href="#cb21-60" aria-hidden="true" tabindex="-1"></a>    <span class="co"># FP16 + torch.compile</span></span>
+<span id="cb21-61"><a href="#cb21-61" aria-hidden="true" tabindex="-1"></a>    <span class="im">import</span> logging</span>
+<span id="cb21-62"><a href="#cb21-62" aria-hidden="true" tabindex="-1"></a>    logging.getLogger(<span class="st">"torch._inductor"</span>).setLevel(logging.ERROR)</span>
+<span id="cb21-63"><a href="#cb21-63" aria-hidden="true" tabindex="-1"></a>    m_comp <span class="op">=</span> torch.<span class="bu">compile</span>(deepcopy(gpu_model).half().to(device), mode<span class="op">=</span><span class="st">'max-autotune'</span>)</span>
+<span id="cb21-64"><a href="#cb21-64" aria-hidden="true" tabindex="-1"></a>    x_comp <span class="op">=</span> gpu_sample.half().to(device)</span>
+<span id="cb21-65"><a href="#cb21-65" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> torch.no_grad():</span>
+<span id="cb21-66"><a href="#cb21-66" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">3</span>): m_comp(x_comp)  <span class="co"># compile warmup</span></span>
+<span id="cb21-67"><a href="#cb21-67" aria-hidden="true" tabindex="-1"></a>        torch.cuda.synchronize()</span>
+<span id="cb21-68"><a href="#cb21-68" aria-hidden="true" tabindex="-1"></a>        t0 <span class="op">=</span> time.time()</span>
+<span id="cb21-69"><a href="#cb21-69" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">50</span>): m_comp(x_comp)</span>
+<span id="cb21-70"><a href="#cb21-70" aria-hidden="true" tabindex="-1"></a>        torch.cuda.synchronize()</span>
+<span id="cb21-71"><a href="#cb21-71" aria-hidden="true" tabindex="-1"></a>        comp_lat <span class="op">=</span> (time.time() <span class="op">-</span> t0) <span class="op">/</span> <span class="dv">50</span> <span class="op">*</span> <span class="dv">1000</span></span>
+<span id="cb21-72"><a href="#cb21-72" aria-hidden="true" tabindex="-1"></a>    gpu_results.append({<span class="st">'name'</span>: <span class="st">'FP16 + torch.compile'</span>, <span class="st">'size_mb'</span>: <span class="fl">49.7</span>, <span class="st">'latency_ms'</span>: comp_lat})</span>
+<span id="cb21-73"><a href="#cb21-73" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span><span class="st">'FP16 + torch.compile'</span><span class="sc">:35s}</span><span class="ss">  size=  49.7 MB  latency=</span><span class="sc">{</span>comp_lat<span class="sc">:6.2f}</span><span class="ss"> ms"</span>)</span>
+<span id="cb21-74"><a href="#cb21-74" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb21-75"><a href="#cb21-75" aria-hidden="true" tabindex="-1"></a>    <span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb21-76"><a href="#cb21-76" aria-hidden="true" tabindex="-1"></a>    df_gpu <span class="op">=</span> pd.DataFrame(gpu_results)</span>
+<span id="cb21-77"><a href="#cb21-77" aria-hidden="true" tabindex="-1"></a>    df_gpu[<span class="st">'speedup'</span>] <span class="op">=</span> df_gpu[<span class="st">'latency_ms'</span>].iloc[<span class="dv">0</span>] <span class="op">/</span> df_gpu[<span class="st">'latency_ms'</span>]</span>
+<span id="cb21-78"><a href="#cb21-78" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>()</span>
+<span id="cb21-79"><a href="#cb21-79" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(df_gpu[[<span class="st">'name'</span>, <span class="st">'size_mb'</span>, <span class="st">'latency_ms'</span>, <span class="st">'speedup'</span>]].to_string(index<span class="op">=</span><span class="va">False</span>))</span>
+<span id="cb21-80"><a href="#cb21-80" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span>:</span>
+<span id="cb21-81"><a href="#cb21-81" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">"No GPU available — skip GPU benchmarks"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>GPU: NVIDIA GeForce RTX 5090
+FP32 (baseline)                      size= 102.5 MB  latency=  7.66 ms
+FP16 (half)                          size=  51.3 MB  latency=  4.23 ms
+W8A32 weight-only                    size=  96.4 MB  latency=  7.66 ms
+W4A32 (INT4 weight-only)             size=  26.4 MB  latency=  8.39 ms
+W4A16 (INT4 + half)                  size=  26.0 MB  latency=  5.07 ms
+FP16 + torch.compile                 size=  49.7 MB  latency=  2.22 ms
+
+                    name    size_mb  latency_ms  speedup
+         FP32 (baseline) 102.542935    7.658081 1.000000
+             FP16 (half)  51.322647    4.230418 1.810242
+       W8A32 weight-only  96.412315    7.655153 1.000382
+W4A32 (INT4 weight-only)  26.376239    8.385038 0.913303
+     W4A16 (INT4 + half)  26.040111    5.074511 1.509127
+    FP16 + torch.compile  49.700000    2.218666 3.451660</code></pre>
+</div>
+</div>
+</section>
+<section id="tensorrt-benchmarks" class="level2">
+<h2 class="anchored" data-anchor-id="tensorrt-benchmarks">TensorRT Benchmarks</h2>
+<p><a href="https://developer.nvidia.com/tensorrt">TensorRT</a> is NVIDIA’s production inference optimizer. It fuses layers, selects optimal kernels, and supports multiple precision formats.</p>
+<p>The workflow: export to ONNX → build a TensorRT engine → run inference:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>pip install tensorrt<span class="op">-</span>cu12  <span class="co"># CUDA 12.x</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>INT8 uses an <code>IInt8EntropyCalibrator2</code> that feeds real training images through the network so TensorRT can compute optimal per-layer scaling factors.</p>
+<div id="771cdiapjg" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> torch.cuda.is_available():</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">try</span>:</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>        <span class="im">import</span> tensorrt <span class="im">as</span> trt</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">except</span> <span class="pp">ImportError</span>:</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">"TensorRT not available. Install with: pip install tensorrt-cu12"</span>)</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>        trt <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> trt <span class="kw">is</span> <span class="kw">not</span> <span class="va">None</span>:</span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Export to ONNX (batch=32)</span></span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>        onnx_path <span class="op">=</span> <span class="st">"/tmp/resnet50_trt_bench.onnx"</span></span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>        <span class="im">import</span> onnx</span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>        trt_base <span class="op">=</span> deepcopy(gpu_model).cuda().<span class="bu">eval</span>()</span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>        torch.onnx.export(trt_base, gpu_sample.cuda(), onnx_path, opset_version<span class="op">=</span><span class="dv">18</span>)</span>
+<span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a>        m_onnx <span class="op">=</span> onnx.load(onnx_path, load_external_data<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb24-15"><a href="#cb24-15" aria-hidden="true" tabindex="-1"></a>        onnx.save(m_onnx, onnx_path)</span>
+<span id="cb24-16"><a href="#cb24-16" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb24-17"><a href="#cb24-17" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Parse ONNX into TensorRT network</span></span>
+<span id="cb24-18"><a href="#cb24-18" aria-hidden="true" tabindex="-1"></a>        logger <span class="op">=</span> trt.Logger(trt.Logger.WARNING)</span>
+<span id="cb24-19"><a href="#cb24-19" aria-hidden="true" tabindex="-1"></a>        builder <span class="op">=</span> trt.Builder(logger)</span>
+<span id="cb24-20"><a href="#cb24-20" aria-hidden="true" tabindex="-1"></a>        network <span class="op">=</span> builder.create_network(</span>
+<span id="cb24-21"><a href="#cb24-21" aria-hidden="true" tabindex="-1"></a>            <span class="dv">1</span> <span class="op">&lt;&lt;</span> <span class="bu">int</span>(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))</span>
+<span id="cb24-22"><a href="#cb24-22" aria-hidden="true" tabindex="-1"></a>        parser <span class="op">=</span> trt.OnnxParser(network, logger)</span>
+<span id="cb24-23"><a href="#cb24-23" aria-hidden="true" tabindex="-1"></a>        <span class="cf">with</span> <span class="bu">open</span>(onnx_path, <span class="st">'rb'</span>) <span class="im">as</span> f:</span>
+<span id="cb24-24"><a href="#cb24-24" aria-hidden="true" tabindex="-1"></a>            <span class="cf">assert</span> parser.parse(f.read()), <span class="st">"ONNX parse failed"</span></span>
+<span id="cb24-25"><a href="#cb24-25" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb24-26"><a href="#cb24-26" aria-hidden="true" tabindex="-1"></a>        input_name <span class="op">=</span> network.get_input(<span class="dv">0</span>).name</span>
+<span id="cb24-27"><a href="#cb24-27" aria-hidden="true" tabindex="-1"></a>        output_name <span class="op">=</span> network.get_output(<span class="dv">0</span>).name</span>
+<span id="cb24-28"><a href="#cb24-28" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb24-29"><a href="#cb24-29" aria-hidden="true" tabindex="-1"></a>        <span class="co"># INT8 calibrator using real images from PETS dataset</span></span>
+<span id="cb24-30"><a href="#cb24-30" aria-hidden="true" tabindex="-1"></a>        <span class="kw">class</span> ImageCalibrator(trt.IInt8EntropyCalibrator2):</span>
+<span id="cb24-31"><a href="#cb24-31" aria-hidden="true" tabindex="-1"></a>            <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, dataloader, n_batches<span class="op">=</span><span class="dv">50</span>, target_size<span class="op">=</span>(<span class="dv">224</span>, <span class="dv">224</span>)):</span>
+<span id="cb24-32"><a href="#cb24-32" aria-hidden="true" tabindex="-1"></a>                <span class="bu">super</span>().<span class="fu">__init__</span>()</span>
+<span id="cb24-33"><a href="#cb24-33" aria-hidden="true" tabindex="-1"></a>                <span class="va">self</span>.dl_iter <span class="op">=</span> <span class="bu">iter</span>(dataloader)</span>
+<span id="cb24-34"><a href="#cb24-34" aria-hidden="true" tabindex="-1"></a>                <span class="va">self</span>.n_batches <span class="op">=</span> n_batches</span>
+<span id="cb24-35"><a href="#cb24-35" aria-hidden="true" tabindex="-1"></a>                <span class="va">self</span>.batch_idx <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb24-36"><a href="#cb24-36" aria-hidden="true" tabindex="-1"></a>                <span class="va">self</span>.target_size <span class="op">=</span> target_size</span>
+<span id="cb24-37"><a href="#cb24-37" aria-hidden="true" tabindex="-1"></a>                <span class="va">self</span>.device_input <span class="op">=</span> torch.empty(<span class="dv">32</span>, <span class="dv">3</span>, <span class="op">*</span>target_size, device<span class="op">=</span><span class="st">'cuda'</span>)</span>
+<span id="cb24-38"><a href="#cb24-38" aria-hidden="true" tabindex="-1"></a>                <span class="va">self</span>.cache <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb24-39"><a href="#cb24-39" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb24-40"><a href="#cb24-40" aria-hidden="true" tabindex="-1"></a>            <span class="kw">def</span> get_batch_size(<span class="va">self</span>): <span class="cf">return</span> <span class="dv">32</span></span>
+<span id="cb24-41"><a href="#cb24-41" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb24-42"><a href="#cb24-42" aria-hidden="true" tabindex="-1"></a>            <span class="kw">def</span> get_batch(<span class="va">self</span>, names):</span>
+<span id="cb24-43"><a href="#cb24-43" aria-hidden="true" tabindex="-1"></a>                <span class="cf">if</span> <span class="va">self</span>.batch_idx <span class="op">&gt;=</span> <span class="va">self</span>.n_batches: <span class="cf">return</span> <span class="va">None</span></span>
+<span id="cb24-44"><a href="#cb24-44" aria-hidden="true" tabindex="-1"></a>                <span class="cf">try</span>:</span>
+<span id="cb24-45"><a href="#cb24-45" aria-hidden="true" tabindex="-1"></a>                    batch <span class="op">=</span> <span class="bu">next</span>(<span class="va">self</span>.dl_iter)</span>
+<span id="cb24-46"><a href="#cb24-46" aria-hidden="true" tabindex="-1"></a>                    xb <span class="op">=</span> batch[<span class="dv">0</span>].as_subclass(torch.Tensor).cuda()</span>
+<span id="cb24-47"><a href="#cb24-47" aria-hidden="true" tabindex="-1"></a>                    <span class="co"># Resize to target shape and pad/trim batch to 32</span></span>
+<span id="cb24-48"><a href="#cb24-48" aria-hidden="true" tabindex="-1"></a>                    xb <span class="op">=</span> torch.nn.functional.interpolate(xb, <span class="va">self</span>.target_size, mode<span class="op">=</span><span class="st">'bilinear'</span>)</span>
+<span id="cb24-49"><a href="#cb24-49" aria-hidden="true" tabindex="-1"></a>                    <span class="cf">if</span> xb.shape[<span class="dv">0</span>] <span class="op">&lt;</span> <span class="dv">32</span>:</span>
+<span id="cb24-50"><a href="#cb24-50" aria-hidden="true" tabindex="-1"></a>                        xb <span class="op">=</span> torch.cat([xb, xb[:<span class="dv">32</span> <span class="op">-</span> xb.shape[<span class="dv">0</span>]]])</span>
+<span id="cb24-51"><a href="#cb24-51" aria-hidden="true" tabindex="-1"></a>                    <span class="va">self</span>.device_input.copy_(xb[:<span class="dv">32</span>])</span>
+<span id="cb24-52"><a href="#cb24-52" aria-hidden="true" tabindex="-1"></a>                    <span class="va">self</span>.batch_idx <span class="op">+=</span> <span class="dv">1</span></span>
+<span id="cb24-53"><a href="#cb24-53" aria-hidden="true" tabindex="-1"></a>                    <span class="cf">return</span> [<span class="bu">int</span>(<span class="va">self</span>.device_input.data_ptr())]</span>
+<span id="cb24-54"><a href="#cb24-54" aria-hidden="true" tabindex="-1"></a>                <span class="cf">except</span> <span class="pp">StopIteration</span>:</span>
+<span id="cb24-55"><a href="#cb24-55" aria-hidden="true" tabindex="-1"></a>                    <span class="cf">return</span> <span class="va">None</span></span>
+<span id="cb24-56"><a href="#cb24-56" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb24-57"><a href="#cb24-57" aria-hidden="true" tabindex="-1"></a>            <span class="kw">def</span> read_calibration_cache(<span class="va">self</span>): <span class="cf">return</span> <span class="va">self</span>.cache</span>
+<span id="cb24-58"><a href="#cb24-58" aria-hidden="true" tabindex="-1"></a>            <span class="kw">def</span> write_calibration_cache(<span class="va">self</span>, cache): <span class="va">self</span>.cache <span class="op">=</span> cache</span>
+<span id="cb24-59"><a href="#cb24-59" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb24-60"><a href="#cb24-60" aria-hidden="true" tabindex="-1"></a>        <span class="kw">def</span> trt_bench(precision_flags, label, calibrator<span class="op">=</span><span class="va">None</span>, n<span class="op">=</span><span class="dv">50</span>):</span>
+<span id="cb24-61"><a href="#cb24-61" aria-hidden="true" tabindex="-1"></a>            config <span class="op">=</span> builder.create_builder_config()</span>
+<span id="cb24-62"><a href="#cb24-62" aria-hidden="true" tabindex="-1"></a>            config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, <span class="dv">1</span> <span class="op">&lt;&lt;</span> <span class="dv">30</span>)</span>
+<span id="cb24-63"><a href="#cb24-63" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> flag <span class="kw">in</span> precision_flags: config.set_flag(flag)</span>
+<span id="cb24-64"><a href="#cb24-64" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> calibrator <span class="kw">is</span> <span class="kw">not</span> <span class="va">None</span>:</span>
+<span id="cb24-65"><a href="#cb24-65" aria-hidden="true" tabindex="-1"></a>                config.int8_calibrator <span class="op">=</span> calibrator</span>
+<span id="cb24-66"><a href="#cb24-66" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb24-67"><a href="#cb24-67" aria-hidden="true" tabindex="-1"></a>            engine_bytes <span class="op">=</span> builder.build_serialized_network(network, config)</span>
+<span id="cb24-68"><a href="#cb24-68" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> engine_bytes <span class="kw">is</span> <span class="va">None</span>:</span>
+<span id="cb24-69"><a href="#cb24-69" aria-hidden="true" tabindex="-1"></a>                <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>label<span class="sc">:25s}</span><span class="ss">  FAILED"</span>)</span>
+<span id="cb24-70"><a href="#cb24-70" aria-hidden="true" tabindex="-1"></a>                <span class="cf">return</span> <span class="va">None</span></span>
+<span id="cb24-71"><a href="#cb24-71" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb24-72"><a href="#cb24-72" aria-hidden="true" tabindex="-1"></a>            runtime <span class="op">=</span> trt.Runtime(logger)</span>
+<span id="cb24-73"><a href="#cb24-73" aria-hidden="true" tabindex="-1"></a>            eng <span class="op">=</span> runtime.deserialize_cuda_engine(engine_bytes)</span>
+<span id="cb24-74"><a href="#cb24-74" aria-hidden="true" tabindex="-1"></a>            ctx <span class="op">=</span> eng.create_execution_context()</span>
+<span id="cb24-75"><a href="#cb24-75" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb24-76"><a href="#cb24-76" aria-hidden="true" tabindex="-1"></a>            d_in <span class="op">=</span> torch.randn(<span class="dv">32</span>, <span class="dv">3</span>, <span class="dv">224</span>, <span class="dv">224</span>, device<span class="op">=</span><span class="st">'cuda'</span>)</span>
+<span id="cb24-77"><a href="#cb24-77" aria-hidden="true" tabindex="-1"></a>            d_out <span class="op">=</span> torch.empty(<span class="dv">32</span>, <span class="dv">1000</span>, device<span class="op">=</span><span class="st">'cuda'</span>)</span>
+<span id="cb24-78"><a href="#cb24-78" aria-hidden="true" tabindex="-1"></a>            ctx.set_tensor_address(input_name, d_in.data_ptr())</span>
+<span id="cb24-79"><a href="#cb24-79" aria-hidden="true" tabindex="-1"></a>            ctx.set_tensor_address(output_name, d_out.data_ptr())</span>
+<span id="cb24-80"><a href="#cb24-80" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb24-81"><a href="#cb24-81" aria-hidden="true" tabindex="-1"></a>            stream <span class="op">=</span> torch.cuda.Stream()</span>
+<span id="cb24-82"><a href="#cb24-82" aria-hidden="true" tabindex="-1"></a>            <span class="cf">with</span> torch.cuda.stream(stream):</span>
+<span id="cb24-83"><a href="#cb24-83" aria-hidden="true" tabindex="-1"></a>                <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">10</span>): ctx.execute_async_v3(stream.cuda_stream)</span>
+<span id="cb24-84"><a href="#cb24-84" aria-hidden="true" tabindex="-1"></a>            torch.cuda.synchronize()</span>
+<span id="cb24-85"><a href="#cb24-85" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb24-86"><a href="#cb24-86" aria-hidden="true" tabindex="-1"></a>            t0 <span class="op">=</span> time.time()</span>
+<span id="cb24-87"><a href="#cb24-87" aria-hidden="true" tabindex="-1"></a>            <span class="cf">with</span> torch.cuda.stream(stream):</span>
+<span id="cb24-88"><a href="#cb24-88" aria-hidden="true" tabindex="-1"></a>                <span class="cf">for</span> _ <span class="kw">in</span> <span class="bu">range</span>(n): ctx.execute_async_v3(stream.cuda_stream)</span>
+<span id="cb24-89"><a href="#cb24-89" aria-hidden="true" tabindex="-1"></a>            torch.cuda.synchronize()</span>
+<span id="cb24-90"><a href="#cb24-90" aria-hidden="true" tabindex="-1"></a>            lat <span class="op">=</span> (time.time() <span class="op">-</span> t0) <span class="op">/</span> n <span class="op">*</span> <span class="dv">1000</span></span>
+<span id="cb24-91"><a href="#cb24-91" aria-hidden="true" tabindex="-1"></a>            <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>label<span class="sc">:25s}</span><span class="ss">  latency=</span><span class="sc">{</span>lat<span class="sc">:.4f}</span><span class="ss"> ms"</span>)</span>
+<span id="cb24-92"><a href="#cb24-92" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> lat</span>
+<span id="cb24-93"><a href="#cb24-93" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb24-94"><a href="#cb24-94" aria-hidden="true" tabindex="-1"></a>        trt_results <span class="op">=</span> []</span>
+<span id="cb24-95"><a href="#cb24-95" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> label, flags, calib <span class="kw">in</span> [</span>
+<span id="cb24-96"><a href="#cb24-96" aria-hidden="true" tabindex="-1"></a>            (<span class="st">'TensorRT FP32'</span>, [],                          <span class="va">None</span>),</span>
+<span id="cb24-97"><a href="#cb24-97" aria-hidden="true" tabindex="-1"></a>            (<span class="st">'TensorRT FP16'</span>, [trt.BuilderFlag.FP16],      <span class="va">None</span>),</span>
+<span id="cb24-98"><a href="#cb24-98" aria-hidden="true" tabindex="-1"></a>            (<span class="st">'TensorRT BF16'</span>, [trt.BuilderFlag.BF16],      <span class="va">None</span>),</span>
+<span id="cb24-99"><a href="#cb24-99" aria-hidden="true" tabindex="-1"></a>            (<span class="st">'TensorRT INT8'</span>, [trt.BuilderFlag.INT8],       ImageCalibrator(dls.train)),</span>
+<span id="cb24-100"><a href="#cb24-100" aria-hidden="true" tabindex="-1"></a>            (<span class="st">'TensorRT FP8'</span>,  [trt.BuilderFlag.FP8],       <span class="va">None</span>),</span>
+<span id="cb24-101"><a href="#cb24-101" aria-hidden="true" tabindex="-1"></a>        ]:</span>
+<span id="cb24-102"><a href="#cb24-102" aria-hidden="true" tabindex="-1"></a>            lat <span class="op">=</span> trt_bench(flags, label, calibrator<span class="op">=</span>calib)</span>
+<span id="cb24-103"><a href="#cb24-103" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> lat: trt_results.append({<span class="st">'name'</span>: label, <span class="st">'latency_ms'</span>: lat})</span>
+<span id="cb24-104"><a href="#cb24-104" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb24-105"><a href="#cb24-105" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Summary</span></span>
+<span id="cb24-106"><a href="#cb24-106" aria-hidden="true" tabindex="-1"></a>        baseline <span class="op">=</span> gpu_results[<span class="dv">0</span>][<span class="st">'latency_ms'</span>]</span>
+<span id="cb24-107"><a href="#cb24-107" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"</span><span class="ch">\n</span><span class="sc">{</span><span class="st">'Method'</span><span class="sc">:25s}</span><span class="ss"> </span><span class="sc">{</span><span class="st">'Latency (ms)'</span><span class="sc">:&gt;12}</span><span class="ss"> </span><span class="sc">{</span><span class="st">'vs PyTorch FP32'</span><span class="sc">:&gt;15}</span><span class="ss">"</span>)</span>
+<span id="cb24-108"><a href="#cb24-108" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">"-"</span> <span class="op">*</span> <span class="dv">55</span>)</span>
+<span id="cb24-109"><a href="#cb24-109" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span><span class="st">'PyTorch FP32'</span><span class="sc">:25s}</span><span class="ss"> </span><span class="sc">{</span>baseline<span class="sc">:12.4f}</span><span class="ss"> </span><span class="sc">{</span><span class="st">'1.0x'</span><span class="sc">:&gt;15}</span><span class="ss">"</span>)</span>
+<span id="cb24-110"><a href="#cb24-110" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> r <span class="kw">in</span> trt_results:</span>
+<span id="cb24-111"><a href="#cb24-111" aria-hidden="true" tabindex="-1"></a>            speedup <span class="op">=</span> baseline <span class="op">/</span> r[<span class="st">'latency_ms'</span>]</span>
+<span id="cb24-112"><a href="#cb24-112" aria-hidden="true" tabindex="-1"></a>            <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>r[<span class="st">'name'</span>]<span class="sc">:25s}</span><span class="ss"> </span><span class="sc">{</span>r[<span class="st">'latency_ms'</span>]<span class="sc">:12.4f}</span><span class="ss"> </span><span class="sc">{</span><span class="ss">f'</span><span class="sc">{</span>speedup<span class="sc">:.1f}</span><span class="ss">x'</span><span class="sc">:&gt;15}</span><span class="ss">"</span>)</span>
+<span id="cb24-113"><a href="#cb24-113" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span>:</span>
+<span id="cb24-114"><a href="#cb24-114" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">"No GPU available — skip TensorRT benchmarks"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>TensorRT FP32              latency=4.4488 ms
+TensorRT FP16              latency=1.4054 ms
+TensorRT BF16              latency=2.2469 ms
+TensorRT INT8              latency=1.8287 ms
+TensorRT FP8               latency=4.4509 ms
+
+Method                    Latency (ms) vs PyTorch FP32
+-------------------------------------------------------
+PyTorch FP32                    7.6581            1.0x
+TensorRT FP32                   4.4488            1.7x
+TensorRT FP16                   1.4054            5.4x
+TensorRT BF16                   2.2469            3.4x
+TensorRT INT8                   1.8287            4.2x
+TensorRT FP8                    4.4509            1.7x</code></pre>
+</div>
+</div>
+</section>
+<section id="comparison" class="level2">
+<h2 class="anchored" data-anchor-id="comparison">Comparison</h2>
+<div id="compare" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>df <span class="op">=</span> pd.DataFrame(results)</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>df[<span class="st">'size_reduction'</span>] <span class="op">=</span> df[<span class="st">'size_mb'</span>].iloc[<span class="dv">0</span>] <span class="op">/</span> df[<span class="st">'size_mb'</span>]</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>df[<span class="st">'speedup'</span>] <span class="op">=</span> df[<span class="st">'latency_ms'</span>].iloc[<span class="dv">0</span>] <span class="op">/</span> df[<span class="st">'latency_ms'</span>]</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(df[[<span class="st">'name'</span>, <span class="st">'size_mb'</span>, <span class="st">'latency_ms'</span>, <span class="st">'size_reduction'</span>, <span class="st">'speedup'</span>]].to_string(index<span class="op">=</span><span class="va">False</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>                       name   size_mb  latency_ms  size_reduction  speedup
+            FP32 (baseline) 46.912607    1.927819        1.000000 1.000000
+                FP16 (half) 23.477471   78.656621        1.998197 0.024509
+          W8A8 static (x86) 11.870623    3.256946        3.951992 0.591910
+W8A32 weight-only (torchao) 45.344999    3.810940        1.034571 0.505865
+     W8A8 dynamic (torchao) 45.340899    2.797017        1.034664 0.689241
+   W4A32 (INT4 weight-only) 12.047031    8.560600        3.894122 0.225197
+        W4A16 (INT4 + half) 11.918135   82.904258        3.936237 0.023254</code></pre>
+</div>
+</div>
+</section>
+<section id="when-to-use-what" class="level2">
+<h2 class="anchored" data-anchor-id="when-to-use-what">When to Use What</h2>
+<section id="cpu-deployment" class="level3">
+<h3 class="anchored" data-anchor-id="cpu-deployment">CPU Deployment</h3>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>Size</th>
+<th>CPU Latency</th>
+<th>Calibration?</th>
+<th>Conv2d?</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>FP32</strong></td>
+<td>1x</td>
+<td>Baseline</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr class="even">
+<td><strong>W8A8 static</strong></td>
+<td>4x smaller</td>
+<td><strong>Fastest</strong> (VNNI/AMX)</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr class="odd">
+<td><strong>W8A32</strong></td>
+<td>~1x</td>
+<td>~Same</td>
+<td>No</td>
+<td>Linear only</td>
+</tr>
+<tr class="even">
+<td><strong>W8A8 dynamic</strong></td>
+<td>~1x</td>
+<td>Slightly faster</td>
+<td>No</td>
+<td>Linear only</td>
+</tr>
+<tr class="odd">
+<td><strong>W4A32</strong></td>
+<td>4x smaller</td>
+<td>Slower (dequant overhead)</td>
+<td>No</td>
+<td><strong>Yes</strong></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="gpu-deployment-resnet-50-batch32-rtx-5090" class="level3">
+<h3 class="anchored" data-anchor-id="gpu-deployment-resnet-50-batch32-rtx-5090">GPU Deployment (ResNet-50, batch=32, RTX 5090)</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 21%">
+<col style="width: 35%">
+<col style="width: 24%">
+<col style="width: 18%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>GPU Latency</th>
+<th>Speedup</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>PyTorch FP32</strong></td>
+<td>7.66 ms</td>
+<td>1.0x</td>
+<td>Baseline</td>
+</tr>
+<tr class="even">
+<td><strong>TensorRT FP32</strong></td>
+<td>4.45 ms</td>
+<td>1.7x</td>
+<td>Layer fusion only</td>
+</tr>
+<tr class="odd">
+<td><strong>TensorRT BF16</strong></td>
+<td>2.25 ms</td>
+<td>3.4x</td>
+<td>Good numerical stability</td>
+</tr>
+<tr class="even">
+<td><strong>TensorRT INT8</strong></td>
+<td>1.83 ms</td>
+<td>4.2x</td>
+<td>Needs calibration, slower than FP16 on Blackwell</td>
+</tr>
+<tr class="odd">
+<td><strong>TensorRT FP16</strong></td>
+<td><strong>1.41 ms</strong></td>
+<td><strong>5.4x</strong></td>
+<td><strong>Best overall for CNNs</strong></td>
+</tr>
+<tr class="even">
+<td><strong>TensorRT FP8</strong></td>
+<td>4.45 ms</td>
+<td>1.7x</td>
+<td>Matmul-only (no conv benefit)</td>
+</tr>
+</tbody>
+</table>
+<blockquote class="blockquote">
+<p><strong>Key finding:</strong> On modern NVIDIA GPUs (Blackwell/Ada Lovelace), FP16 Tensor Cores outperform INT8 for convolution-heavy models. INT8 may still win on older architectures (T4, A100) or for Transformer models (matmul-heavy).</p>
+</blockquote>
+</section>
+<section id="rules-of-thumb" class="level3">
+<h3 class="anchored" data-anchor-id="rules-of-thumb">Rules of Thumb</h3>
+<ul>
+<li><strong>CPU production</strong> → W8A8 static (<code>Quantizer(backend='x86', method='static')</code>)</li>
+<li><strong>GPU production (CNNs)</strong> → TensorRT FP16 — fastest, no calibration needed</li>
+<li><strong>GPU production (Transformers)</strong> → TensorRT INT8 — matmul kernels benefit from INT8</li>
+<li><strong>GPU (no TensorRT)</strong> → FP16 + <code>torch.compile(model.half(), mode='max-autotune')</code></li>
+<li><strong>Smallest model</strong> → W4A32 (<code>IntxWeightOnlyConfig(weight_dtype=torch.int4)</code>)</li>
+<li><strong>Quick experiment</strong> → W8A32 (<code>Quantizer(backend='torchao', method='int8_weight_only')</code>)</li>
+<li><strong>Mobile</strong> → W8A8 static (<code>Quantizer(backend='qnnpack', method='static')</code>)</li>
+</ul>
+<blockquote class="blockquote">
+<p><strong>Tested on:</strong> ResNet-50, batch=32, 224x224 input. CPU: AMD Ryzen (ResNet-18). GPU: NVIDIA RTX 5090. Results vary with model architecture, batch size, and hardware generation.</p>
+</blockquote>
+<hr>
+</section>
+</section>
+<section id="see-also" class="level2">
+<h2 class="anchored" data-anchor-id="see-also">See Also</h2>
+<ul>
+<li><a href="../../quantize/quantizer.html">Quantizer API</a> - Full API reference</li>
+<li><a href="qat_distill.html">QAT + Knowledge Distillation</a> - Recover accuracy after quantization</li>
+<li><a href="../getting_started.html">Getting Started</a> - Full optimization walkthrough</li>
+</ul>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/FasterAI-Labs\.github\.io\/fasterai");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+      &nbsp;
+    </div>   
+    <div class="nav-footer-center">
+<p>© By Nathan Hubens</p>
+<div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/FasterAI-Labs/fasterai/issues/new" class="toc-action"><i class="bi bi-github"></i>Report an issue</a></li></ul></div></div>
+    <div class="nav-footer-right">
+      &nbsp;
+    </div>
+  </div>
+</footer>
+
+
+
+
+</body></html>
