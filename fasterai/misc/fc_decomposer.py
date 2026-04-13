@@ -9,41 +9,58 @@ import torch.nn as nn
 import copy
 
 # %% ../../nbs/misc/fc_decomposer.ipynb #6524ac31
+def _rank_from_energy(S, threshold):
+    "Find minimum rank to retain `threshold` fraction of singular value energy"
+    energy = S.pow(2).cumsum(0) / S.pow(2).sum()
+    idx = (energy >= threshold).nonzero(as_tuple=True)[0]
+    return max(1, int(idx[0].item()) + 1) if len(idx) > 0 else S.shape[0]
+
+def _should_decompose(name, layers=None, exclude=None):
+    "Check if a named layer should be decomposed"
+    if exclude and name in exclude: return False
+    if layers is not None: return name in layers
+    return True
+
 class FC_Decomposer:
     "Decompose fully-connected layers using SVD to reduce parameters"
 
-    def __init__(self):
-        pass
+    def __init__(self): pass
         
     def decompose(self, 
-                  model: nn.Module,            # The model to decompose
-                  percent_removed: float = 0.5 # Fraction of singular values to remove [0, 1)
+                  model: nn.Module,                       # The model to decompose
+                  percent_removed: float = 0.5,           # Fraction of singular values to remove [0, 1)
+                  energy_threshold: float | None = None,  # Auto rank: keep this fraction of energy (0-1)
+                  layers: list[str] | None = None,        # Layer names to decompose (None = all)
+                  exclude: list[str] | None = None,       # Layer names to skip
     ) -> nn.Module:
-        "Recursively decompose all Linear layers in the model using SVD"
-        if not (0 <= percent_removed < 1):
+        "Decompose Linear layers using SVD. Use energy_threshold for automatic rank selection."
+        if energy_threshold is None and not (0 <= percent_removed < 1):
             raise ValueError(f"percent_removed must be in range [0, 1), got {percent_removed}")
+        if energy_threshold is not None and not (0 < energy_threshold <= 1):
+            raise ValueError(f"energy_threshold must be in range (0, 1], got {energy_threshold}")
 
         new_model = copy.deepcopy(model)
-        module_names = list(new_model._modules)
-
-        for k, name in enumerate(module_names):
-            if len(list(new_model._modules[name]._modules)) > 0:
-                new_model._modules[name] = self.decompose(new_model._modules[name], percent_removed)
-            else:
-                if isinstance(new_model._modules[name], nn.Linear):
-                    layer = self.SVD(new_model._modules[name], percent_removed)
-                    new_model._modules[name] = layer
+        for name, module in list(new_model.named_modules()):
+            if isinstance(module, nn.Linear) and _should_decompose(name, layers, exclude):
+                parent_name, _, child_name = name.rpartition('.')
+                parent = new_model.get_submodule(parent_name) if parent_name else new_model
+                setattr(parent, child_name, self.SVD(module, percent_removed, energy_threshold))
         return new_model
 
-
     def SVD(self, 
-            layer: nn.Linear,       # The Linear layer to decompose
-            percent_removed: float  # Fraction of singular values to remove
+            layer: nn.Linear,                          # The Linear layer to decompose
+            percent_removed: float = 0.5,              # Fraction of singular values to remove
+            energy_threshold: float | None = None,     # Auto rank via energy retention
     ) -> nn.Sequential:
         "Perform SVD decomposition on a single Linear layer"
         W = layer.weight.data
         U, S, Vh = torch.linalg.svd(W, full_matrices=False)
-        L = max(1, int((1.-percent_removed) * S.shape[0]))
+
+        if energy_threshold is not None:
+            L = _rank_from_energy(S, energy_threshold)
+        else:
+            L = max(1, int((1.-percent_removed) * S.shape[0]))
+
         W1 = U[:,:L]
         W2 = torch.diag(S[:L]) @ Vh[:L]
         layer_1 = nn.Linear(in_features=layer.in_features, 

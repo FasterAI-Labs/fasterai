@@ -9,25 +9,28 @@ import torch.nn as nn
 import copy
 
 # %% ../../nbs/misc/conv_decomposer.ipynb #conv-decomposer
+from .fc_decomposer import _rank_from_energy, _should_decompose
+
 def _unfold(tensor, mode):
     "Unfold a tensor along a mode into a matrix"
     return tensor.moveaxis(mode, 0).flatten(1)
 
-def _partial_tucker(weight, ranks, n_iter=5):
+def _partial_tucker(weight, ranks, n_iter=10, tol=1e-4):
     "Partial Tucker decomposition on modes [0, 1] via alternating SVD (HOOI)"
-    # Initialize factors from SVD of mode unfoldings
     U0 = torch.linalg.svd(_unfold(weight, 0), full_matrices=False)[0][:, :ranks[0]]
     U1 = torch.linalg.svd(_unfold(weight, 1), full_matrices=False)[0][:, :ranks[1]]
 
     for _ in range(n_iter):
-        # Project out mode 0 using U0, then update U1
+        U0_prev, U1_prev = U0.clone(), U1.clone()
+        # Project out mode 0, update U1
         proj = torch.einsum('oihw, or -> rihw', weight, U0)
         U1 = torch.linalg.svd(_unfold(proj, 1), full_matrices=False)[0][:, :ranks[1]]
-        # Project out mode 1 using U1, then update U0
+        # Project out mode 1, update U0
         proj = torch.einsum('oihw, is -> oshw', weight, U1)
         U0 = torch.linalg.svd(_unfold(proj, 0), full_matrices=False)[0][:, :ranks[0]]
+        # Early stopping on convergence
+        if (U0 - U0_prev).norm() + (U1 - U1_prev).norm() < tol: break
 
-    # Core = W ×₀ U0ᵀ ×₁ U1ᵀ
     core = torch.einsum('oihw, or, is -> rshw', weight, U0, U1)
     return core, [U0, U1]
 
@@ -38,35 +41,51 @@ class Conv_Decomposer:
     def __init__(self): pass
 
     def decompose(self,
-                  model: nn.Module,              # The model to decompose
-                  percent_removed: float = 0.5,  # Fraction of rank to remove per mode [0, 1)
+                  model: nn.Module,                       # The model to decompose
+                  percent_removed: float = 0.5,           # Fraction of rank to remove per mode [0, 1)
+                  energy_threshold: float | None = None,  # Auto rank: keep this fraction of energy (0-1)
+                  layers: list[str] | None = None,        # Layer names to decompose (None = all eligible)
+                  exclude: list[str] | None = None,       # Layer names to skip
+                  n_iter: int = 10,                       # Max HOOI iterations
+                  tol: float = 1e-4,                      # HOOI convergence tolerance
     ) -> nn.Module:
-        "Recursively decompose all eligible Conv2d layers in the model"
-        if not (0 <= percent_removed < 1):
+        "Decompose eligible Conv2d layers. Use energy_threshold for automatic rank selection."
+        if energy_threshold is None and not (0 <= percent_removed < 1):
             raise ValueError(f"percent_removed must be in range [0, 1), got {percent_removed}")
+        if energy_threshold is not None and not (0 < energy_threshold <= 1):
+            raise ValueError(f"energy_threshold must be in range (0, 1], got {energy_threshold}")
 
         new_model = copy.deepcopy(model)
-        for name in list(new_model._modules):
-            module = new_model._modules[name]
-            if len(list(module._modules)) > 0:
-                new_model._modules[name] = self.decompose(module, percent_removed)
-            elif isinstance(module, nn.Conv2d) and module.groups == 1 and min(module.kernel_size) > 1:
-                new_model._modules[name] = self.Tucker(module, percent_removed)
+        for name, module in list(new_model.named_modules()):
+            if (isinstance(module, nn.Conv2d) and module.groups == 1 
+                and min(module.kernel_size) > 1
+                and _should_decompose(name, layers, exclude)):
+                parent_name, _, child_name = name.rpartition('.')
+                parent = new_model.get_submodule(parent_name) if parent_name else new_model
+                setattr(parent, child_name, self.Tucker(module, percent_removed, energy_threshold, n_iter, tol))
         return new_model
 
     def Tucker(self,
-               layer: nn.Conv2d,          # The Conv2d layer to decompose
-               percent_removed: float,    # Fraction of rank to remove per mode
+               layer: nn.Conv2d,                        # The Conv2d layer to decompose
+               percent_removed: float = 0.5,            # Fraction of rank to remove per mode
+               energy_threshold: float | None = None,   # Auto rank via energy retention
+               n_iter: int = 10,                        # Max HOOI iterations
+               tol: float = 1e-4,                       # HOOI convergence tolerance
     ) -> nn.Sequential:
         "Perform Tucker decomposition on a single Conv2d layer"
         W = layer.weight.data
         C_out, C_in = W.shape[:2]
 
-        R_out = max(1, int((1 - percent_removed) * C_out))
-        R_in  = max(1, int((1 - percent_removed) * C_in))
+        if energy_threshold is not None:
+            S0 = torch.linalg.svd(_unfold(W, 0), full_matrices=False)[1]
+            S1 = torch.linalg.svd(_unfold(W, 1), full_matrices=False)[1]
+            R_out = _rank_from_energy(S0, energy_threshold)
+            R_in = _rank_from_energy(S1, energy_threshold)
+        else:
+            R_out = max(1, int((1 - percent_removed) * C_out))
+            R_in  = max(1, int((1 - percent_removed) * C_in))
 
-        core, (U_out, U_in) = _partial_tucker(W, [R_out, R_in])
-        # core: (R_out, R_in, H, W), U_out: (C_out, R_out), U_in: (C_in, R_in)
+        core, (U_out, U_in) = _partial_tucker(W, [R_out, R_in], n_iter=n_iter, tol=tol)
 
         # 1. Pointwise input compression: (C_in → R_in)
         first = nn.Conv2d(C_in, R_in, 1, bias=False)
