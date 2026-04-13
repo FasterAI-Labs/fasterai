@@ -10,29 +10,21 @@ import copy
 from einops import rearrange
 
 # %% ../../nbs/misc/conv_decomposer.ipynb #conv-decomposer
-from .fc_decomposer import _rank_from_energy, _should_decompose, _collect_activation_rms
+from .fc_decomposer import _rank_from_energy, _should_decompose
 
 def _mode_unfold(W, mode):
     "Unfold a 4D tensor along a mode into a 2D matrix"
     return rearrange(W, 'o i h w -> o (i h w)') if mode == 0 else rearrange(W, 'o i h w -> i (o h w)')
 
-def _partial_tucker(weight, ranks, n_iter=10, tol=1e-4, input_scale=None):
+def _partial_tucker(weight, ranks, n_iter=10, tol=1e-4):
     "Partial Tucker decomposition on modes [0, 1] via alternating SVD (HOOI)"
     U0 = torch.linalg.svd(_mode_unfold(weight, 0), full_matrices=False)[0][:, :ranks[0]]
-
-    # Optionally weight mode-1 by activation scale (distribution-aware Tucker)
-    unfold1 = _mode_unfold(weight, 1)
-    if input_scale is not None:
-        unfold1 = unfold1 * input_scale.unsqueeze(1)
-    U1 = torch.linalg.svd(unfold1, full_matrices=False)[0][:, :ranks[1]]
+    U1 = torch.linalg.svd(_mode_unfold(weight, 1), full_matrices=False)[0][:, :ranks[1]]
 
     for _ in range(n_iter):
         U0_prev, U1_prev = U0.clone(), U1.clone()
         proj = torch.einsum('oihw, or -> rihw', weight, U0)
-        unfold1 = _mode_unfold(proj, 1)
-        if input_scale is not None:
-            unfold1 = unfold1 * input_scale.unsqueeze(1)
-        U1 = torch.linalg.svd(unfold1, full_matrices=False)[0][:, :ranks[1]]
+        U1 = torch.linalg.svd(_mode_unfold(proj, 1), full_matrices=False)[0][:, :ranks[1]]
         proj = torch.einsum('oihw, is -> oshw', weight, U1)
         U0 = torch.linalg.svd(_mode_unfold(proj, 0), full_matrices=False)[0][:, :ranks[0]]
         if (U0 - U0_prev).norm() + (U1 - U1_prev).norm() < tol: break
@@ -52,14 +44,12 @@ class Conv_Decomposer:
                   percent_removed: float = 0.5,           # Fraction of rank to remove [0, 1)
                   method: str = 'tucker',                 # 'tucker', 'svd', 'spatial', or 'cp'
                   energy_threshold: float | None = None,  # Auto rank via energy retention (0-1)
-                  data = None,                            # Calibration data for activation-aware decomposition
-                  n_batches: int = 5,                     # Number of calibration batches
                   layers: list[str] | None = None,        # Layer names to decompose (None = all eligible)
                   exclude: list[str] | None = None,       # Layer names to skip
                   n_iter: int = 10,                       # Max HOOI iterations (tucker only)
                   tol: float = 1e-4,                      # HOOI convergence tolerance (tucker only)
     ) -> nn.Module:
-        "Decompose eligible Conv2d layers. Pass data for activation-aware decomposition."
+        "Decompose eligible Conv2d layers using the specified method."
         if method not in VALID_METHODS:
             raise ValueError(f"method must be one of {VALID_METHODS}, got {method!r}")
         if energy_threshold is None and not (0 <= percent_removed < 1):
@@ -70,13 +60,6 @@ class Conv_Decomposer:
         decompose_fn = {'tucker': self.Tucker, 'svd': self.SVD,
                         'spatial': self.Spatial, 'cp': self.CP}[method]
 
-        # Collect activation stats on original model before deepcopy
-        scale_map = {}
-        if data is not None:
-            rms = _collect_activation_rms(model, data, nn.Conv2d, n_batches)
-            for name, m in model.named_modules():
-                if m in rms: scale_map[name] = rms[m]
-
         new_model = copy.deepcopy(model)
         for name, module in list(new_model.named_modules()):
             if (isinstance(module, nn.Conv2d) and module.groups == 1 
@@ -84,11 +67,8 @@ class Conv_Decomposer:
                 and _should_decompose(name, layers, exclude)):
                 parent_name, _, child_name = name.rpartition('.')
                 parent = new_model.get_submodule(parent_name) if parent_name else new_model
-                scale = scale_map.get(name, None)
                 if method == 'tucker':
-                    replacement = decompose_fn(module, percent_removed, energy_threshold, n_iter, tol, scale)
-                elif method == 'svd':
-                    replacement = decompose_fn(module, percent_removed, energy_threshold, scale)
+                    replacement = decompose_fn(module, percent_removed, energy_threshold, n_iter, tol)
                 else:
                     replacement = decompose_fn(module, percent_removed, energy_threshold)
                 setattr(parent, child_name, replacement)
@@ -98,7 +78,6 @@ class Conv_Decomposer:
             layer: nn.Conv2d,
             percent_removed: float = 0.5,
             energy_threshold: float | None = None,
-            scale: torch.Tensor | None = None,       # Per-channel activation RMS for data-aware SVD
     ) -> nn.Sequential:
         "SVD: 2 layers — spatial at reduced output rank + pointwise expansion"
         W = layer.weight.data
@@ -107,21 +86,10 @@ class Conv_Decomposer:
 
         W_2d = rearrange(W, 'o i h w -> o (i h w)')
 
-        # Data-aware: scale input channels by activation RMS
-        if scale is not None:
-            s = (scale.to(W.device) + 1e-6)
-            # Scale each input channel block: repeat scale for K*K spatial dims
-            s_expanded = s.repeat_interleave(K[0] * K[1])
-            W_2d_scaled = W_2d * s_expanded.unsqueeze(0)
-        else:
-            W_2d_scaled = W_2d
-
-        U, S, Vh = torch.linalg.svd(W_2d_scaled, full_matrices=False)
+        U, S, Vh = torch.linalg.svd(W_2d, full_matrices=False)
         R = _rank_from_energy(S, energy_threshold) if energy_threshold else max(1, int((1 - percent_removed) * min(C_out, C_in)))
 
         W_first = torch.diag(S[:R]) @ Vh[:R]
-        if scale is not None:
-            W_first = W_first / s_expanded.unsqueeze(0)  # undo scaling
 
         first = nn.Conv2d(C_in, R, K, stride=layer.stride,
                           padding=layer.padding, dilation=layer.dilation, bias=False)
@@ -211,7 +179,6 @@ class Conv_Decomposer:
                energy_threshold: float | None = None,
                n_iter: int = 10,
                tol: float = 1e-4,
-               scale: torch.Tensor | None = None,    # Per-channel activation RMS for data-aware Tucker
     ) -> nn.Sequential:
         "Tucker: 3 layers — pointwise compress + spatial + pointwise expand"
         W = layer.weight.data
@@ -225,10 +192,7 @@ class Conv_Decomposer:
         else:
             R_out = max(1, int((1 - percent_removed) * C_out))
             R_in  = max(1, int((1 - percent_removed) * C_in))
-
-        # Pass activation scale to HOOI for distribution-aware Tucker
-        input_scale = (scale.to(W.device) + 1e-6) if scale is not None else None
-        core, (U_out, U_in) = _partial_tucker(W, [R_out, R_in], n_iter=n_iter, tol=tol, input_scale=input_scale)
+        core, (U_out, U_in) = _partial_tucker(W, [R_out, R_in], n_iter=n_iter, tol=tol)
 
         first = nn.Conv2d(C_in, R_in, 1, bias=False)
         first.weight.data = rearrange(U_in.t(), 'r i -> r i 1 1')
