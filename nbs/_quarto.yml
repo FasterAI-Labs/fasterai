@@ -114,6 +114,8 @@ website:
         contents:
         - misc/bn_folding.ipynb
         - misc/fc_decomposer.ipynb
+        - misc/conv_decomposer.ipynb
+        - misc/cpu_optimizer.ipynb
       - section: Export
         contents:
         - export/onnx_exporter.ipynb

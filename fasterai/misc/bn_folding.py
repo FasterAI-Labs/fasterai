@@ -6,7 +6,6 @@ __all__ = ['BN_Folder']
 # %% ../../nbs/misc/bn_folding.ipynb #productive-preparation
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import copy
 
 # %% ../../nbs/misc/bn_folding.ipynb #83000749

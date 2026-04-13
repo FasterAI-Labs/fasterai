@@ -6,7 +6,6 @@ __all__ = ['FC_Decomposer']
 # %% ../../nbs/misc/fc_decomposer.ipynb #fbbccd4a
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import copy
 
 # %% ../../nbs/misc/fc_decomposer.ipynb #6524ac31
