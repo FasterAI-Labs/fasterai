@@ -51,6 +51,9 @@ website:
       - section: Tutorials
         contents:
         - tutorials/walkthrough.ipynb
+        - section: Core
+          contents:
+          - tutorials/core/criteria_guide.ipynb
         - section: Sparse
           contents:
           - tutorials/sparse/schedules.ipynb
@@ -66,6 +69,7 @@ website:
         - section: Distill
           contents:
           - tutorials/distill/distill_callback.ipynb
+          - tutorials/distill/losses_guide.ipynb
         - section: Regularize
           contents:
           - tutorials/regularize/regularize_callback.ipynb
