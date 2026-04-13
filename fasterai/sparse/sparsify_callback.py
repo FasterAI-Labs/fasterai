@@ -45,7 +45,7 @@ class SparsifyCallback(Callback):
 
     def before_fit(self) -> None:
         "Setup sparsifier before training"
-        print(f'Pruning of {self.granularity} until a sparsity of {self.sparsity}%')
+        print(f'Sparsifying {self.granularity} until a sparsity of {self.sparsity}%')
         assert self.schedule.start_pct*self.n_epoch>=self.rewind_epoch, 'You must rewind to an epoch before the start of the pruning process'
         model = self.model or self.learn.model
         data = self.learn.dls.train if getattr(self.criteria, 'needs_data', False) else None

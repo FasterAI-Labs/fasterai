@@ -66,6 +66,7 @@ website:
         - section: Distill
           contents:
           - tutorials/distill/distill_callback.ipynb
+          - tutorials/distill/losses_guide.ipynb
         - section: Regularize
           contents:
           - tutorials/regularize/regularize_callback.ipynb
