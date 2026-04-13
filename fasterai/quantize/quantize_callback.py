@@ -13,10 +13,7 @@ import copy
 
 # %% ../../nbs/quantize/quantize_callback.ipynb #6bc203ce-0e73-454e-8ecc-0ac07327bec0
 class QuantizeCallback(Callback):
-    """
-    Simple callback for Quantization-Aware Training (QAT) in fastai.
-    Uses the Quantizer class for configuration and conversion.
-    """
+    "Simple callback for Quantization-Aware Training (QAT) using the Quantizer class"
     def __init__(self, 
                  quantizer=None,        # Provide custom quantizer
                  backend='x86',         # Target backend for quantization: 'x86', 'qnnpack'

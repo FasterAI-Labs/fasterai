@@ -97,17 +97,17 @@ class KnowledgeDistillationCallback(Callback):
 # %% ../../nbs/distill/distillation_callback.ipynb #3378f3af
 def get_model_layers(
     model: nn.Module,             # Model to inspect
-    getLayerRepr: bool = False    # Whether to return layer representations
+    get_layer_repr: bool = False    # Whether to return layer representations
 ) -> list[str] | dict[str, str]:
     "Get all layer names in a model, optionally with their representations"
-    layers = OrderedDict() if getLayerRepr else []
+    layers = OrderedDict() if get_layer_repr else []
     
     def get_layers(net, prefix=[]):
         if hasattr(net, "_modules"):
             for name, layer in net._modules.items():
                 if layer is None:
                     continue
-                if getLayerRepr:
+                if get_layer_repr:
                     layers[".".join(prefix+[name])] = layer.__repr__()
                 else:
                     layers.append(".".join(prefix + [name]))
