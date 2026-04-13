@@ -21,6 +21,42 @@ def _should_decompose(name, layers=None, exclude=None):
     if layers is not None: return name in layers
     return True
 
+def _collect_activation_rms(
+    model: nn.Module,                        # Model to calibrate
+    data,                                    # Tensor, list of batches, or DataLoader
+    layer_type: type = nn.Linear,            # Layer types to hook
+    n_batches: int = 5,                      # Max batches to process
+) -> dict[nn.Module, torch.Tensor]:
+    "Collect per-input-channel RMS activation norms via forward hooks"
+    device = next(model.parameters()).device
+    state = {}
+    hooks = []
+    for m in model.modules():
+        if isinstance(m, layer_type):
+            state[m] = {'acc': torch.zeros(m.weight.shape[1], device=device), 'n': 0}
+            def make_hook(module):
+                def hook(mod, inp):
+                    x = inp[0].detach()
+                    dims = [i for i in range(x.dim()) if i != 1]  # keep channel dim
+                    state[module]['acc'] += x.pow(2).sum(dim=dims)
+                    state[module]['n'] += x.shape[0]
+                return hook
+            hooks.append(m.register_forward_pre_hook(make_hook(m)))
+
+    model.eval()
+    with torch.no_grad():
+        if isinstance(data, torch.Tensor):
+            model(data.to(device))
+        else:
+            for n, batch in enumerate(data):
+                if n >= n_batches: break
+                xb = batch[0] if isinstance(batch, (tuple, list)) else batch
+                model(xb.as_subclass(torch.Tensor).to(device))
+
+    for h in hooks: h.remove()
+    return {m: (s['acc'] / max(s['n'], 1)).sqrt() for m, s in state.items()}
+
+
 class FC_Decomposer:
     "Decompose fully-connected layers using SVD to reduce parameters"
 
@@ -30,31 +66,51 @@ class FC_Decomposer:
                   model: nn.Module,                       # The model to decompose
                   percent_removed: float = 0.5,           # Fraction of singular values to remove [0, 1)
                   energy_threshold: float | None = None,  # Auto rank: keep this fraction of energy (0-1)
+                  data = None,                            # Calibration data for ASVD (None = standard SVD)
+                  n_batches: int = 5,                     # Number of calibration batches
                   layers: list[str] | None = None,        # Layer names to decompose (None = all)
                   exclude: list[str] | None = None,       # Layer names to skip
     ) -> nn.Module:
-        "Decompose Linear layers using SVD. Use energy_threshold for automatic rank selection."
+        "Decompose Linear layers using SVD. Pass data for activation-aware ASVD."
         if energy_threshold is None and not (0 <= percent_removed < 1):
             raise ValueError(f"percent_removed must be in range [0, 1), got {percent_removed}")
         if energy_threshold is not None and not (0 < energy_threshold <= 1):
             raise ValueError(f"energy_threshold must be in range (0, 1], got {energy_threshold}")
 
+        # Collect activation stats on ORIGINAL model before deepcopy
+        scale_map = {}
+        if data is not None:
+            rms = _collect_activation_rms(model, data, nn.Linear, n_batches)
+            # Map by name so we can find them after deepcopy
+            for name, m in model.named_modules():
+                if m in rms: scale_map[name] = rms[m]
+
         new_model = copy.deepcopy(model)
         for name, module in list(new_model.named_modules()):
             if isinstance(module, nn.Linear) and _should_decompose(name, layers, exclude):
+                scale = scale_map.get(name, None)
                 parent_name, _, child_name = name.rpartition('.')
                 parent = new_model.get_submodule(parent_name) if parent_name else new_model
-                setattr(parent, child_name, self.SVD(module, percent_removed, energy_threshold))
+                setattr(parent, child_name, self.SVD(module, percent_removed, energy_threshold, scale))
         return new_model
 
     def SVD(self, 
             layer: nn.Linear,                          # The Linear layer to decompose
             percent_removed: float = 0.5,              # Fraction of singular values to remove
             energy_threshold: float | None = None,     # Auto rank via energy retention
+            scale: torch.Tensor | None = None,         # Per-channel activation RMS for ASVD
     ) -> nn.Sequential:
-        "Perform SVD decomposition on a single Linear layer"
+        "Perform SVD decomposition. With scale: activation-aware SVD (ASVD)."
         W = layer.weight.data
-        U, S, Vh = torch.linalg.svd(W, full_matrices=False)
+
+        # ASVD: scale columns by activation RMS before SVD
+        if scale is not None:
+            s = scale.to(W.device) + 1e-6
+            W_scaled = W * s.unsqueeze(0)  # (out, in) * (1, in)
+        else:
+            W_scaled = W
+
+        U, S, Vh = torch.linalg.svd(W_scaled, full_matrices=False)
 
         if energy_threshold is not None:
             L = _rank_from_energy(S, energy_threshold)
@@ -63,6 +119,12 @@ class FC_Decomposer:
 
         W1 = U[:,:L]
         W2 = torch.diag(S[:L]) @ Vh[:L]
+
+        # ASVD: undo scaling in the first layer's weights
+        if scale is not None:
+            s_inv = 1.0 / s
+            W2 = W2 * s_inv.unsqueeze(0)  # (L, in) * (1, in)
+
         layer_1 = nn.Linear(in_features=layer.in_features, 
                     out_features=L, bias=False)
         layer_1.weight.data = W2
