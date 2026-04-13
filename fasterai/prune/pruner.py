@@ -47,9 +47,12 @@ class Pruner():
         # Convert Schedule object to torch-pruning compatible function
         tp_schedule = self._to_tp_scheduler(self.schedule)
 
+        # Clone example_inputs to escape inference mode (torch-pruning needs autograd for tracing)
+        _example_inputs = self.example_inputs.clone().to(next(self.model.parameters()).device)
+
         self.pruner = tp.pruner.MetaPruner(
             self.model,
-            example_inputs=self.example_inputs.to(next(self.model.parameters()).device),
+            example_inputs=_example_inputs,
             importance=self.group_importance,
             pruning_ratio=self.default_pruning_ratio,
             pruning_ratio_dict=self.pruning_ratio_dict,
