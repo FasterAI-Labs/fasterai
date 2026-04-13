@@ -27,7 +27,7 @@ class Granularities:
     @classmethod
     def get_dim(cls, 
         m: nn.Module, # The module to get dimensions for
-        g: str        # The name of the granularity
+        g: dict       # Mapping from granularity names to dimensions
     ) -> int | list[int]:
         "Get the dimensions associated with a granularity for a module"
         for k in cls._granularities:
@@ -38,7 +38,7 @@ class Granularities:
     @classmethod
     def add_granularity(cls, 
                         m_type: Type[nn.Module],    # The module type to add granularities for
-                        g: str                      # Mapping from granularity names to dimensions
+                        g: dict                      # Mapping from granularity names to dimensions
     ) -> None:
         "Add granularity specifications for a new module type"
         cls._granularities[m_type] = g
