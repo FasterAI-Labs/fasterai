@@ -13,7 +13,7 @@ from typing import Callable, Any
 from ..core.schedule import Schedule
 
 # %% auto #0
-__all__ = ['KnowledgeDistillationCallback', 'get_model_layers', 'get_module_by_name']
+__all__ = ['KnowledgeDistillationCallback', 'get_model_layers', 'get_module_by_name', 'match_feature_layers']
 
 # %% ../../nbs/distill/distillation_callback.ipynb #03eeecbf
 class KnowledgeDistillationCallback(Callback):
@@ -128,3 +128,45 @@ def get_module_by_name(
         return reduce(getattr, names, module)
     except AttributeError:
         return None
+
+# %% ../../nbs/distill/distillation_callback.ipynb #aadbdc14
+def match_feature_layers(
+    student_model: nn.Module,   # Student model
+    teacher_model: nn.Module,   # Teacher model
+    sample_input: torch.Tensor, # Sample input tensor for shape inference
+) -> dict[str, list[str]]:
+    "Find pairs of layers with matching spatial resolutions between student and teacher"
+    def _collect_shapes(model, x):
+        shapes = {}
+        hooks = []
+        for name, m in model.named_modules():
+            if name == '' or isinstance(m, (nn.ReLU, nn.ReLU6, nn.BatchNorm2d,
+                                            nn.Dropout, nn.Identity)):
+                continue
+            def hook_fn(mod, inp, out, name=name):
+                if isinstance(out, torch.Tensor) and out.dim() == 4:
+                    shapes[name] = tuple(out.shape[2:])
+            hooks.append(m.register_forward_hook(hook_fn))
+        with torch.no_grad(): model(x)
+        for h in hooks: h.remove()
+        return shapes
+
+    def _best_at_each_res(shapes):
+        by_res = {}
+        for name, shape in shapes.items():
+            depth = name.count('.')
+            # Prefer shallowest module; at same depth, prefer later (richer features)
+            if shape not in by_res or depth <= by_res[shape][1]:
+                by_res[shape] = (name, depth)
+        return {res: name for res, (name, _) in by_res.items()}
+
+    s_by_res = _best_at_each_res(_collect_shapes(student_model, sample_input))
+    t_by_res = _best_at_each_res(_collect_shapes(teacher_model, sample_input))
+
+    shared = sorted(set(s_by_res) & set(t_by_res), key=lambda r: r[0], reverse=True)
+    shared = [r for r in shared if r[0] > 1]  # drop 1x1 (avgpool)
+
+    return {
+        'student': [s_by_res[r] for r in shared],
+        'teacher': [t_by_res[r] for r in shared],
+    }
