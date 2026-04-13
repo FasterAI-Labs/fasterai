@@ -123,8 +123,8 @@ class Conv_Decomposer:
         # Vertical: Conv2d(C_in, C_out*R, Kh×1)
         # Horizontal: Conv2d(C_out*R, C_out, 1×Kw, groups=C_out)
         # Build weights by SVD of each filter's spatial component
-        W_vert = torch.zeros(C_out * R, C_in, Kh, 1)
-        W_horiz = torch.zeros(C_out, R, 1, Kw)
+        W_vert = torch.zeros(C_out * R, C_in, Kh, 1, device=W.device)
+        W_horiz = torch.zeros(C_out, R, 1, Kw, device=W.device)
 
         for o in range(C_out):
             for i in range(C_in):
@@ -173,9 +173,9 @@ class Conv_Decomposer:
         V_4d = Vh[:R].reshape(R, C_in, Kh, Kw)
 
         # Further decompose spatial dims of V_4d via SVD per rank component
-        W_pw_in = torch.zeros(R, C_in, 1, 1)
-        W_dw_v = torch.zeros(R, 1, Kh, 1)
-        W_dw_h = torch.zeros(R, 1, 1, Kw)
+        W_pw_in = torch.zeros(R, C_in, 1, 1, device=W.device)
+        W_dw_v = torch.zeros(R, 1, Kh, 1, device=W.device)
+        W_dw_h = torch.zeros(R, 1, 1, Kw, device=W.device)
 
         for r in range(R):
             # Average spatial component across input channels
