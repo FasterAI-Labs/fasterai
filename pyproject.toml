@@ -7,7 +7,7 @@ name = "fasterai"
 dynamic = ["version"]
 description = "A library to make neural networks lighter and faster with fastai"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [{name = "Nathan Hubens", email = "nathan.hubens@gmail.com"}]
 keywords = ['pruning', 'sparsification', 'knowledge-distillation', 'quantization', 'compression', 'deep-learning']
