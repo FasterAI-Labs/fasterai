@@ -9,6 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, asdict
 from typing import Callable, Any, Literal
 from collections import OrderedDict
+from contextlib import contextmanager
 from fastcore.basics import store_attr
 
 # fasterai imports (relative within fasterai package)
@@ -29,7 +30,10 @@ class LayerSensitivity:
     baseline_metric: float       # metric before compression
     compressed_metric: float     # metric after compression
     delta: float                 # metric change (positive = degradation)
-    
+    group_id: int | None = None  # pruning: dependency-group id (coupled layers share one); None for sparsity/quant
+    group_members: list[str] = field(default_factory=list)  # names of all layers co-pruned with this one
+    prunable: bool = True        # False if the layer could not be pruned (genuine no-op) — not "robust"
+
     def as_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return asdict(self)
@@ -66,8 +70,13 @@ class SensitivityResult:
         *,
         most_sensitive: bool = True,   # True=highest delta (fragile), False=lowest (robust)
     ) -> list[LayerSensitivity]:
-        """Return top N most or least sensitive layers."""
-        sorted_layers = sorted(self.layers, key=lambda x: x.delta, reverse=most_sensitive)
+        """Return top N most or least sensitive layers.
+
+        Layers that could not be pruned (`prunable=False`) are excluded — a no-op
+        prune is NOT evidence of robustness, so it must never rank as compressible.
+        """
+        candidates = [l for l in self.layers if l.prunable]
+        sorted_layers = sorted(candidates, key=lambda x: x.delta, reverse=most_sensitive)
         return sorted_layers[:n]
     
     def summary(
@@ -82,19 +91,30 @@ class SensitivityResult:
         print(f"  Baseline {self.metric_name}: {self.baseline_metric:.4f}")
         print(f"  Layers analyzed: {len(self.layers)}")
         print()
-        
+
+        def _line(i, layer):
+            sign = "+" if layer.delta > 0 else ""
+            grp = f"  [group {layer.group_id}]" if layer.group_id is not None else ""
+            print(f"     {i}. {layer.name:30} Δ={sign}{layer.delta:.4f}{grp}")
+
         # Most sensitive (fragile) layers
         print(f"  🔴 Most Sensitive (fragile):")
         for i, layer in enumerate(self.top(top, most_sensitive=True), 1):
-            sign = "+" if layer.delta > 0 else ""
-            print(f"     {i}. {layer.name:30} Δ={sign}{layer.delta:.4f}")
+            _line(i, layer)
         print()
         
         # Most robust layers
         print(f"  🟢 Most Robust (compressible):")
         for i, layer in enumerate(self.top(top, most_sensitive=False), 1):
-            sign = "+" if layer.delta > 0 else ""
-            print(f"     {i}. {layer.name:30} Δ={sign}{layer.delta:.4f}")
+            _line(i, layer)
+
+        # Layers that could not be pruned in isolation — surfaced, NOT ranked as robust
+        not_prunable = [l for l in self.layers if not l.prunable]
+        if not_prunable:
+            print()
+            print(f"  ⚪ Not prunable in isolation ({len(not_prunable)}):")
+            for i, layer in enumerate(not_prunable[:top], 1):
+                print(f"     {i}. {layer.name:30} (group {layer.group_id})")
     
     def to_dataframe(self):
         """Convert to pandas DataFrame."""
@@ -114,6 +134,11 @@ class SensitivityResult:
         
         High sensitivity layers get lower compression, robust layers get higher.
         Uses parameter-weighted optimization to hit target_pct exactly.
+
+        Coupled layers (same `group_id`) are optimized as a SINGLE knob — they
+        physically share one pruning ratio — then the group's target is expanded
+        back to every member, so the returned dict stays per-layer. Layers that
+        are not prunable receive `min_pct`.
         """
         if not self.layers:
             return {}
@@ -122,14 +147,33 @@ class SensitivityResult:
         target = target_pct / 100.0
         smin = min_pct / 100.0
         smax = max_pct / 100.0
-        
-        # Get sensitivity scores
-        names = [l.name for l in self.layers]
-        deltas = np.array([max(0.0, l.delta) for l in self.layers], dtype=float)
-        weights = np.array([float(l.params) for l in self.layers], dtype=float)
-        
+
+        # Collapse to one entry per dependency group (a singleton group per layer when
+        # group_id is None, e.g. sparsity/quant). This stops a coupled group of N layers
+        # from being double-counted as N independent knobs in the weighted-mean solve.
+        prunable = [l for l in self.layers if l.prunable]
+        not_prunable = [l for l in self.layers if not l.prunable]
+        groups: OrderedDict[Any, dict] = OrderedDict()
+        for l in prunable:
+            key = l.group_id if l.group_id is not None else ("solo", l.name)
+            g = groups.setdefault(key, {"names": [], "params": 0.0, "delta": 0.0})
+            g["names"].append(l.name)
+            g["params"] += float(l.params)
+            g["delta"] = max(g["delta"], max(0.0, l.delta))  # delta is shared within a group
+
+        # Not-prunable layers are protected at min_pct and kept out of the optimization
+        targets: dict[str, float] = {l.name: round(float(min_pct), 2) for l in not_prunable}
+        if not groups:
+            return targets
+
+        deltas = np.array([g["delta"] for g in groups.values()], dtype=float)
+        weights = np.array([g["params"] for g in groups.values()], dtype=float)
+        group_names = [g["names"] for g in groups.values()]
+
         if weights.sum() == 0:
-            return {n: target_pct for n in names}
+            for names in group_names:
+                for n in names: targets[n] = target_pct
+            return targets
         
         # Normalize sensitivity and invert (high sensitivity -> low compression)
         if np.allclose(deltas, deltas[0]):
@@ -162,8 +206,12 @@ class SensitivityResult:
                 lam_hi = lam_mid
         
         final_s = np.clip(s0 + 0.5 * (lam_lo + lam_hi), smin, smax)
-        
-        return {name: round(s * 100, 2) for name, s in zip(names, final_s)}
+
+        # Expand each group's target back to all its member layers (they share the ratio)
+        for names, s in zip(group_names, final_s):
+            for n in names:
+                targets[n] = round(s * 100, 2)
+        return targets
     
     def plot(
         self,
@@ -219,13 +267,35 @@ class SensitivityAnalyzer:
         self._sparsifier: Sparsifier | None = None
         self._activation_hooks: list[Any] = []
         self._activation_quantize_config: dict[str, bool] = {}
+
+    @staticmethod
+    def _out_dim(
+        module: nn.Module,  # layer to inspect
+    ) -> int | None:
+        """Output channels (Conv) or features (Linear) of a layer."""
+        return getattr(module, 'out_channels', None) or getattr(module, 'out_features', None)
+
+    @staticmethod
+    @contextmanager
+    def _quiet():
+        """Silence the per-construction notices fasterai's Pruner prints (ignore / per-layer info)."""
+        import io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            yield
     
-    def _get_compressible_layers(self) -> list[tuple[str, nn.Module]]:
-        """Get all compressible layers (Conv2d, Linear, etc.)."""
+    def _get_compressible_layers(
+        self,
+        layer_types: type | tuple[type, ...] | None = None,  # a module type or tuple of types to restrict to (None = all compressible)
+    ) -> list[tuple[str, nn.Module]]:
+        """Get all compressible layers (Conv2d, Linear, etc.), optionally filtered to `layer_types`."""
+        if layer_types is None:
+            types = self.COMPRESSIBLE_LAYERS
+        else:
+            types = (layer_types,) if isinstance(layer_types, type) else tuple(layer_types)
         return [
             (name, module) 
             for name, module in self.model.named_modules()
-            if isinstance(module, self.COMPRESSIBLE_LAYERS)
+            if isinstance(module, self.COMPRESSIBLE_LAYERS) and isinstance(module, types)
             and hasattr(module, 'weight') and module.weight is not None
         ]
     
@@ -277,49 +347,115 @@ class SensitivityAnalyzer:
         model_copy = torch.load(buffer, weights_only=False)
         model_copy.eval()
         return model_copy
-    
+
+    def _fresh_copy(self) -> nn.Module:
+        """A clean model copy (save/load), falling back to deepcopy if that fails."""
+        try:
+            return self._clone_model()
+        except Exception:
+            return deepcopy(self.model)
+
+    def _channel_signature(
+        self,
+        model: nn.Module,  # model to fingerprint
+    ) -> tuple:
+        """Tuple of out-channels/out-features for every compressible layer (detects no-op prunes)."""
+        return tuple(
+            self._out_dim(m)
+            for _, m in model.named_modules()
+            if isinstance(m, self.COMPRESSIBLE_LAYERS)
+        )
+
+    def _build_dependency_groups(
+        self,
+        model: nn.Module,  # model to analyze (groups keyed by layer NAME, stable across clones)
+    ) -> tuple[dict[str, int], dict[int, list[str]]]:
+        """Map each compressible layer to its OUTPUT-coupled dependency group.
+
+        Residual/skip connections force several layers to share an output-channel count, so
+        pruning any one of them prunes all of them — and they yield the SAME accuracy delta.
+        We detect these coupled sets (torch-pruning handler `prune_out_channels`) so the result
+        can tag coupled layers with a shared `group_id` and so `to_layer_targets()` treats each
+        coupled set as a single knob. Layers fasterai's Pruner ignores (output Linear, attention
+        qkv) get no group — they are not independently prunable.
+
+        Returns (name->group_id, group_id->member_names).
+        """
+        import torch_pruning as tp
+        import warnings
+        name_of = {m: n for n, m in model.named_modules()}
+        with self._quiet():
+            p = Pruner(model, pruning_ratio=0.5, context='local',
+                       criteria=self.criteria, example_inputs=self.sample)
+        DG = p.pruner.DG
+        ignored = set(p.ignored_layers)
+
+        name_to_coupled: dict[str, frozenset] = {}
+        for name, mod in model.named_modules():
+            if not isinstance(mod, self.COMPRESSIBLE_LAYERS) or mod in ignored:
+                continue
+            fn = tp.prune_conv_out_channels if isinstance(mod, nn.Conv2d) else tp.prune_linear_out_channels
+            coupled = {name}
+            try:
+                group = DG.get_pruning_group(mod, fn, idxs=list(range(self._out_dim(mod))))
+                for dep, _ in group:
+                    tmod = dep.target.module
+                    if (isinstance(tmod, self.COMPRESSIBLE_LAYERS) and tmod in name_of
+                            and tmod not in ignored
+                            and getattr(dep.handler, '__name__', '') == 'prune_out_channels'):
+                        coupled.add(name_of[tmod])
+            except Exception as e:
+                # Treat as uncoupled (its own singleton group); warn for parity with the prune path
+                warnings.warn(f"Could not resolve dependency group for {name}: {e}")
+            name_to_coupled[name] = frozenset(coupled)
+
+        # Assign a group id per unique coupled-set
+        key_to_gid: dict[frozenset, int] = {}
+        name_to_gid: dict[str, int] = {}
+        gid_to_members: dict[int, list[str]] = {}
+        for name, key in name_to_coupled.items():
+            if key not in key_to_gid:
+                key_to_gid[key] = len(key_to_gid)
+                gid_to_members[key_to_gid[key]] = sorted(key)
+            name_to_gid[name] = key_to_gid[key]
+        return name_to_gid, gid_to_members
+
     def _apply_structural_pruning(
         self, 
-        target_name: str,  # name of layer to prune
-        level: float,      # pruning ratio (0-100)
-    ) -> nn.Module:
-        """Apply structural pruning to a single layer using fasterai Pruner.
-        
-        Returns a copy of the model with only the target layer pruned.
-        Uses state_dict cloning to avoid deepcopy issues with non-leaf tensors.
+        target_name: str,   # layer to prune — applied EXACTLY as a real per-layer dict prune
+        level: float,       # pruning ratio (0-100)
+    ) -> tuple[nn.Module, bool]:
+        """Prune the target layer on a fresh model copy exactly as a real per-layer prune would.
+
+        Uses fasterai's per-layer dict target `{target_name: level}`, so the measured
+        degradation matches what the user gets from `Pruner(model, {target_name: level})`
+        or `PruneCallback(pruning_ratio={target_name: level})` — including the residual cascade
+        for coupled layers. This is what makes the reported Δ a faithful predictor of a real
+        prune. Returns (pruned_model, prunable); prunable is False if the prune changed nothing.
         """
+        import warnings
+        model_copy = self._fresh_copy()
+        if target_name not in dict(model_copy.named_modules()):
+            return model_copy, False
+
+        before = self._channel_signature(model_copy)
         try:
-            model_copy = self._clone_model()
-        except Exception:
-            # Fallback to deepcopy if clone fails
-            model_copy = deepcopy(self.model)
-        
-        all_layers = []
-        target_module = None
-        for name, module in model_copy.named_modules():
-            if isinstance(module, self.COMPRESSIBLE_LAYERS):
-                all_layers.append(module)
-                if name == target_name:
-                    target_module = module
-        
-        ignored_layers = [m for m in all_layers if m is not target_module]
-        
-        try:
-            pruner = Pruner(
-                model_copy,
-                pruning_ratio=level,
-                context='local',
-                criteria=self.criteria,
-                ignored_layers=ignored_layers,
-                example_inputs=self.sample,
-            )
-            pruner.prune_model()
+            with self._quiet():
+                pruner = Pruner(
+                    model_copy,
+                    pruning_ratio={target_name: level},
+                    context='local',
+                    criteria=self.criteria,
+                    example_inputs=self.sample,
+                )
+                pruner.prune_model()
         except Exception as e:
-            import warnings
             warnings.warn(f"Structural pruning failed for {target_name}: {e}")
-            return model_copy
-        
-        return model_copy
+            # Never evaluate a half-pruned model — return a clean copy marked not-prunable
+            return self._fresh_copy(), False
+
+        prunable = self._channel_signature(model_copy) != before
+        return model_copy, prunable
     
     # ─── Quantization helpers ────────────────────────────────────────────────────
     
@@ -476,11 +612,23 @@ class SensitivityAnalyzer:
         *,
         granularity: str = "weight",          # granularity for sparsity (fasterai granularities)
         layers: list[str] | None = None,      # specific layer names to analyze (None = all)
+        layer_types: type | tuple[type, ...] | None = None,  # restrict to a module type or tuple of types, e.g. nn.Conv2d or (nn.Conv2d, nn.Linear) (None = all compressible)
         quant_per_channel: bool = True,       # use per-channel quantization
         quant_activations: bool = False,      # also quantize activations
         verbose: bool = True,                 # print progress
     ) -> SensitivityResult:
-        """Analyze per-layer sensitivity to compression."""
+        """Analyze per-layer sensitivity to compression.
+
+        For **pruning**, each layer is pruned with the per-layer target `{name: level}` — the
+        exact operation `Pruner`/`PruneCallback` perform — so the reported Δ faithfully predicts
+        the degradation of really pruning that layer at `level`. Residual/skip-coupled layers
+        prune together and therefore share a Δ (tagged with a common `group_id`); layers that
+        cannot be pruned independently (output Linear, attention) are marked `prunable=False`.
+
+        Pass `layer_types` to restrict the analysis to specific module types — a single type or
+        a tuple, e.g. `layer_types=nn.Conv2d` analyses only convolutions and skips the
+        classifier `Linear`.
+        """
         if compression not in self.VALID_COMPRESSIONS:
             raise ValueError(f"compression must be one of {self.VALID_COMPRESSIONS}")
         
@@ -499,9 +647,17 @@ class SensitivityAnalyzer:
         if verbose:
             print(f"{baseline:.4f}")
         
-        all_layers = self._get_compressible_layers()
+        all_layers = self._get_compressible_layers(layer_types)
         if layers is not None:
             all_layers = [(n, m) for n, m in all_layers if n in layers]
+
+        # Pruning: precompute dependency groups once so coupled layers can share a group_id
+        # and each coupled set is only pruned/evaluated a single time (deduped by group id).
+        group_gid: dict[str, int] = {}
+        group_members: dict[int, list[str]] = {}
+        group_cache: dict[int, tuple[float, bool]] = {}
+        if compression == "pruning":
+            group_gid, group_members = self._build_dependency_groups(self.model)
         
         mode_info = ""
         if compression == "quantization":
@@ -510,7 +666,7 @@ class SensitivityAnalyzer:
         elif compression == "sparsity":
             mode_info = f" (granularity={granularity}, criteria={self.criteria.f.__name__})"
         elif compression == "pruning":
-            mode_info = f" (structural, criteria={self.criteria.f.__name__})"
+            mode_info = f" (structural group-sensitivity, criteria={self.criteria.f.__name__})"
         
         if verbose:
             unit = 'bits' if compression == 'quantization' else '%'
@@ -521,7 +677,9 @@ class SensitivityAnalyzer:
         for i, (name, module) in enumerate(all_layers):
             if verbose:
                 print(f"  [{i+1}/{len(all_layers)}] {name}...", end=" ", flush=True)
-            
+
+            prunable = True
+            gid = group_gid.get(name)  # None for sparsity/quant and for ignored (output/attention) layers
             if compression == "sparsity":
                 self._apply_sparsity(module, level)
                 compressed_metric = self.eval_fn(self.model)
@@ -529,10 +687,17 @@ class SensitivityAnalyzer:
                 param_count = module.weight.numel()
                 
             elif compression == "pruning":
-                pruned_model = self._apply_structural_pruning(name, level)
-                compressed_metric = self.eval_fn(pruned_model)
+                if gid is None:
+                    # ignored layer (output Linear / attention) — not independently prunable
+                    compressed_metric, prunable = baseline, False
+                elif gid in group_cache:
+                    compressed_metric, prunable = group_cache[gid]  # coupled member: reuse the group's prune
+                else:
+                    pruned_model, prunable = self._apply_structural_pruning(name, level)
+                    compressed_metric = self.eval_fn(pruned_model) if prunable else baseline
+                    del pruned_model
+                    group_cache[gid] = (compressed_metric, prunable)
                 param_count = module.weight.numel()
-                del pruned_model
                 
             elif compression == "quantization":
                 saved_weight = module.weight.data.clone()
@@ -561,7 +726,8 @@ class SensitivityAnalyzer:
             
             if verbose:
                 sign = "+" if delta > 0 else ""
-                print(f"Δ={sign}{delta:.4f}")
+                tag = "" if prunable else " (not prunable)"
+                print(f"Δ={sign}{delta:.4f}{tag}")
             
             results.append(LayerSensitivity(
                 name=name,
@@ -570,6 +736,9 @@ class SensitivityAnalyzer:
                 baseline_metric=baseline,
                 compressed_metric=compressed_metric,
                 delta=delta,
+                group_id=gid,
+                group_members=group_members.get(gid, []),
+                prunable=prunable,
             ))
         
         if compression == "sparsity":
