@@ -31,31 +31,34 @@ def fold_bn(model: nn.Module   # model containing Conv2d→BatchNorm2d pairs
 
 # %% ../../nbs/quantize/adaround.ipynb #c9f0e214
 def weight_scale(W: torch.Tensor,             # weight tensor [out_channels, ...]
-                 w_bits: int = 4,             # bit-width (signed, symmetric)
+                 w_bits: int = 4,             # bit-width (signed)
                  granularity: str = 'channel',  # 'channel' (per-output-channel) or 'tensor'
-    ):                                        # (scale, qmax) — dequant scale and positive clip
-    "Symmetric quantization `scale` and positive clip `qmax` for a weight tensor."
-    qmax = 2 ** (w_bits - 1) - 1                       # INT4 -> 7, INT8 -> 127
+    ):                                        # (scale, qmin, qmax) — dequant scale and signed clip range
+    "Signed weight quantization `scale` and clip range `[qmin, qmax]` on the ONNX/ORT grid."
+    qmax =   2 ** (w_bits - 1) - 1                     # INT4 ->  7,  INT8 ->  127
+    qmin = -(2 ** (w_bits - 1))                        # INT4 -> -8,  INT8 -> -128 (asymmetric signed grid)
+    denom =  2 ** (w_bits - 1) - 0.5                   # INT4 -> 7.5  (matches onnxruntime per-channel int4)
     if granularity == 'channel':
         r = W.detach().abs().reshape(W.shape[0], -1).amax(1).clamp_min(1e-12)
-        scale = (r / qmax).reshape([-1] + [1] * (W.dim() - 1))
+        scale = (r / denom).reshape([-1] + [1] * (W.dim() - 1))
     else:
-        scale = W.detach().abs().amax().clamp_min(1e-12) / qmax
-    return scale, qmax
+        scale = W.detach().abs().amax().clamp_min(1e-12) / denom
+    return scale, qmin, qmax
 
 def rtn_quant(W: torch.Tensor,                # weight tensor to fake-quantize
               w_bits: int = 4,                # bit-width
               granularity: str = 'channel',   # 'channel' or 'tensor'
     ) -> torch.Tensor:                        # dequantized (fake-quant) weights, same shape
-    "Round-to-nearest (RTN) symmetric fake-quant of a weight tensor — the AdaRound baseline."
-    scale, qmax = weight_scale(W, w_bits, granularity)
-    q = torch.clamp(torch.round(W / scale), -qmax, qmax)
-    return q * scale
+    "Round-to-nearest (RTN) signed fake-quant — the AdaRound baseline (== AdaRound at init)."
+    scale, qmin, qmax = weight_scale(W, w_bits, granularity)
+    floorWs = torch.floor(W / scale)
+    q = floorWs + ((W / scale - floorWs) >= 0.5).float()  # round half up (matches the AdaRound hard round)
+    return torch.clamp(q, qmin, qmax) * scale
 
 # %% ../../nbs/quantize/adaround.ipynb #d948dfff
 # AdaRound rectified-sigmoid soft rounding (Nagel et al., 2020):
 #   h(V) = clamp(sigmoid(V)*(zeta-gamma)+gamma, 0, 1)
-#   W_q(V) = s * clamp(floor(W/s) + h(V), -qmax, qmax)
+#   W_q(V) = s * clamp(floor(W/s) + h(V), qmin, qmax)
 _ZETA, _GAMMA = 1.1, -0.1
 
 def _rect_sigmoid(V: torch.Tensor) -> torch.Tensor:
@@ -67,10 +70,10 @@ def _init_V(frac: torch.Tensor) -> torch.Tensor:
     s0 = ((frac - _GAMMA) / (_ZETA - _GAMMA)).clamp(1e-6, 1 - 1e-6)
     return torch.log(s0 / (1 - s0))
 
-def _hard_quant_from_V(V, floorWs, scale, qmax):
-    "Deployed weights: hard-round the learned soft rounding `h(V)`."
+def _hard_quant_from_V(V, floorWs, scale, qmin, qmax):
+    "Deployed weights: hard-round the learned soft rounding `h(V)` onto the signed grid."
     h_hard = (_rect_sigmoid(V) >= 0.5).float()
-    return scale * torch.clamp(floorWs + h_hard, -qmax, qmax)
+    return scale * torch.clamp(floorWs + h_hard, qmin, qmax)
 
 def _layer_fwd(mod, x, w, b):
     "Forward one Conv2d/Linear layer with an explicit weight/bias (for reconstruction)."
@@ -96,7 +99,7 @@ def adaround_layer(layer: nn.Module,             # Conv2d/Linear whose rounding 
     "Learn per-weight soft rounding for one layer, minimising output reconstruction ‖W_q(V)x − Wx‖² + regularizer."
     device = torch.device(device) if device is not None else layer.weight.device
     W = layer.weight.detach().float().to(device)
-    scale, qmax = weight_scale(W, w_bits, granularity)
+    scale, qmin, qmax = weight_scale(W, w_bits, granularity)
     floorWs = torch.floor(W / scale)
     frac = (W / scale) - floorWs                          # in [0, 1)
     V = _init_V(frac).clone().requires_grad_(True)        # init so h(V) == frac  (== RTN)
@@ -108,7 +111,7 @@ def adaround_layer(layer: nn.Module,             # Conv2d/Linear whose rounding 
         idx = torch.randint(0, N, (min(batch_size, N),))
         xb = x_cal[idx].to(device, dtype=torch.float32)
         h = _rect_sigmoid(V)
-        Wq = scale * torch.clamp(floorWs + h, -qmax, qmax)
+        Wq = scale * torch.clamp(floorWs + h, qmin, qmax)
         out_q = _layer_fwd(layer, xb, Wq, bias)
         with torch.no_grad():
             out_fp = _layer_fwd(layer, xb, W, bias)
@@ -125,7 +128,7 @@ def adaround_layer(layer: nn.Module,             # Conv2d/Linear whose rounding 
     with torch.no_grad():
         h = _rect_sigmoid(V)
         not_binary = ((h > 0.02) & (h < 0.98)).float().mean().item()  # unresolved fraction
-        Wq_hard = _hard_quant_from_V(V, floorWs, scale, qmax)
+        Wq_hard = _hard_quant_from_V(V, floorWs, scale, qmin, qmax)
     return Wq_hard, {'not_binary_frac': not_binary, 'w_bits': w_bits, 'granularity': granularity}
 
 # %% ../../nbs/quantize/adaround.ipynb #10fa2568
@@ -236,7 +239,7 @@ def adaround_quantize(
 ) -> nn.Module:                                    # AdaRound fake-quantized model
     """Post-training INT weight quantization with learned rounding (AdaRound, Nagel et al. 2020).
 
-    Symmetric per-output-channel (or per-tensor) fake-quant whose rounding is *learned* per layer by
+    Signed per-output-channel (or per-tensor) fake-quant whose rounding is *learned* per layer by
     minimising output reconstruction error, recovering most of the INT4 round-to-nearest cliff for
     redundant CNNs (ResNet-class ~ INT8; depthwise-heavy nets stay architecture-dependently lossy).
 
