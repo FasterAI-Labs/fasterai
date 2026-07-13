@@ -3,13 +3,14 @@
 # %% ../../nbs/quantize/adaround.ipynb #1746d882
 from __future__ import annotations
 import copy
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.fusion import fuse_conv_bn_eval
 
 # %% auto #0
-__all__ = ['fold_bn', 'weight_scale', 'rtn_quant', 'adaround_layer', 'adaround_quantize']
+__all__ = ['fold_bn', 'weight_scale', 'rtn_quant', 'adaround_layer', 'adaround_quantize', 'adaround_to_onnx']
 
 # %% ../../nbs/quantize/adaround.ipynb #80a30f53
 def _set_child(parent, name, new):
@@ -244,8 +245,9 @@ def adaround_quantize(
     redundant CNNs (ResNet-class ~ INT8; depthwise-heavy nets stay architecture-dependently lossy).
 
     Returns an accuracy-faithful **fake-quantized** model (weights quantized then de-quantized
-    in-place). Real INT4-kernel export (torchao / ONNX-QDQ) is the deployment follow-up. In the
-    dimensional `Quantizer` this is `criteria='adaround'`."""
+    in-place). It also stashes the exact per-layer quant params on `model._adaround_qparams` so
+    `adaround_to_onnx` can write a *faithful* INT4 QDQ ONNX (torchao is the other deployment path). In
+    the dimensional `Quantizer` this is `criteria='adaround'`."""
     if calibration_dl is None:
         raise ValueError("adaround_quantize requires calibration data -- pass a DataLoaders, a "
                          "DataLoader, or a list of input batches as `calibration_dl` (got None).")
@@ -266,9 +268,15 @@ def adaround_quantize(
         raise ValueError("calibration_dl yielded no batches.")
 
     layers = list(_iter_target_layers(qmodel, layer_type))
-    caches = _capture_inputs(qmodel, layers, batches, device)  # FP inputs (parallel AdaRound)
+    layer_names = {m: n for n, m in qmodel.named_modules()}     # module -> dotted name (matches ONNX inits)
+    caches = _capture_inputs(qmodel, layers, batches, device)   # FP inputs (parallel AdaRound)
 
+    # stash exact per-layer quant params for faithful INT4 ONNX export (adaround_to_onnx).
+    # the scale is *not* recoverable post-hoc: AdaRound bakes W <- scale*int, so capture it here.
+    qmodel._adaround_qparams = {}                               # {name: (per-channel scale, qmin, qmax)}
     for i, layer in enumerate(layers):
+        scale, qmin, qmax = weight_scale(layer.weight.detach().float(), w_bits, granularity)
+        qmodel._adaround_qparams[layer_names[layer]] = (scale.detach().cpu(), int(qmin), int(qmax))
         Wq, info = adaround_layer(layer, caches[layer], w_bits, granularity=granularity,
                                   iters=iters, lr=lr, lam=lam, batch_size=batch_size, device=device)
         layer.weight.data = Wq.to(layer.weight.dtype)
@@ -279,3 +287,114 @@ def adaround_quantize(
     if act_bits is not None:
         _calibrate_activations(qmodel, layers, batches, act_bits, device)
     return qmodel
+
+# %% ../../nbs/quantize/adaround.ipynb #b5556811
+def _pack_int4(flat: np.ndarray,  # 1-D array of signed ints in [-8, 7]
+    ) -> bytes:                   # packed two-nibbles-per-byte (onnxruntime INT4 raw_data layout)
+    "Pack signed int4 values two-per-byte (low nibble first), matching onnxruntime's INT4 initializers."
+    v = (flat.astype(np.int32) & 0xF).astype(np.uint8)
+    n = v.size; pad = (-n) % 2
+    if pad: v = np.concatenate([v, np.zeros(pad, np.uint8)])
+    v = v.reshape(-1, 2)
+    return (v[:, 0] | (v[:, 1] << 4)).astype(np.uint8).tobytes()
+
+def _unpack_int4(raw: bytes,  # packed int4 bytes (two nibbles per byte)
+                 n: int,      # number of int4 values to recover
+    ) -> np.ndarray:          # 1-D int8 array of the signed int4 values in [-8, 7]
+    "Inverse of `_pack_int4` (sign-extends each 4-bit nibble)."
+    b = np.frombuffer(raw, dtype=np.uint8)
+    out = np.empty(b.size * 2, dtype=np.int16)
+    out[0::2] = b & 0xF
+    out[1::2] = (b >> 4) & 0xF
+    out = out[:n]
+    return np.where(out >= 8, out - 16, out).astype(np.int8)
+
+def adaround_to_onnx(
+    model: nn.Module,          # a model returned by `adaround_quantize` (carries `_adaround_qparams`)
+    sample: torch.Tensor,      # one example input (batched or [C,H,W]) shaping the ONNX graph
+    path: str,                 # output path for the INT4 QDQ ONNX file
+    *,
+    input_name: str = 'image',   # ONNX graph input name
+    calibration_dl = None,       # optional calibration data for activation quant (else synthesized from `sample`)
+) -> str:                        # `path` to the written INT4 QDQ ONNX
+    """Export an AdaRound model to a *faithful* INT4 QDQ ONNX.
+
+    Standard ONNX exporters recalibrate the weight scale inside `quantize_static`, discarding
+    AdaRound's learned up/down rounding (a ~4-7 pt accuracy drop at INT4). This helper instead
+    writes AdaRound's **exact** per-channel `scale` and int4 weights into the QDQ initializers, so
+    the deployed ONNX carries the *learned* rounding and matches the fake-quant accuracy.
+
+    The graph is produced in three steps: (1) export the fake-quant model to FP32 ONNX (legacy
+    exporter, dynamic batch); (2) run onnxruntime `quantize_static` (QDQ, per-channel QInt4 weights,
+    QInt8 activations) to get the correct QDQ *structure* with ORT's own (wrong) scales; (3) overwrite
+    the weight `_scale` and int4 `_quantized` initializers with AdaRound's exact params from
+    `model._adaround_qparams`. Requires `onnx` and `onnxruntime`."""
+    qparams = getattr(model, '_adaround_qparams', None)
+    if qparams is None:
+        raise ValueError("model has no `_adaround_qparams` -- call adaround_quantize first "
+                         "(the exact per-layer scales cannot be recovered from the baked weights).")
+    try:
+        import onnx
+        from onnx import numpy_helper
+        from onnxruntime.quantization import (quantize_static, QuantType, QuantFormat,
+                                              CalibrationDataReader, quant_pre_process,
+                                              CalibrationMethod)
+    except ImportError as e:
+        raise ImportError("adaround_to_onnx requires onnx and onnxruntime. "
+                          "Install with: pip install onnx onnxruntime") from e
+    import os, tempfile
+
+    orig_device = next(model.parameters()).device
+    model.eval().cpu()
+    dummy = sample.detach().cpu().float()
+    if dummy.dim() == 3: dummy = dummy.unsqueeze(0)
+
+    # AdaRound-baked weights keyed by module name (== _adaround_qparams keys == ONNX init prefixes)
+    ada_w = {n: m.weight.detach().float().cpu()
+             for n, m in model.named_modules() if isinstance(m, (nn.Conv2d, nn.Linear))}
+
+    # calibration images for the activation-quant statistics -> list of float32 arrays
+    if calibration_dl is not None:
+        calib = [b.detach().cpu().float().numpy() for b in _normalize_calibration(calibration_dl)]
+    else:  # synthesize a few perturbed copies of `sample` so MinMax sees a plausible activation range
+        calib = [dummy.numpy()] + [(dummy + 0.1 * torch.randn_like(dummy)).numpy() for _ in range(3)]
+
+    class _DR(CalibrationDataReader):
+        def __init__(self): self._it = iter([{input_name: a} for a in calib])
+        def get_next(self): return next(self._it, None)
+
+    with tempfile.TemporaryDirectory() as td:
+        fp, pre = os.path.join(td, 'fp32.onnx'), os.path.join(td, 'pre.onnx')
+        # (1) FP32 ONNX -- dynamo=False (the dynamo exporter breaks ORT's quant_pre_process)
+        torch.onnx.export(model, dummy, fp, input_names=[input_name], output_names=['output'],
+                          dynamic_axes={input_name: {0: 'batch'}, 'output': {0: 'batch'}},
+                          opset_version=18, dynamo=False)
+        # (2) standard ORT INT4 QDQ -- correct graph, ORT's (wrong) scales/ints
+        quant_pre_process(fp, pre)
+        quantize_static(pre, path, _DR(), quant_format=QuantFormat.QDQ, per_channel=True,
+                        weight_type=QuantType.QInt4, activation_type=QuantType.QInt8,
+                        op_types_to_quantize=['Conv', 'Gemm'],
+                        calibrate_method=CalibrationMethod.MinMax)
+    model.to(orig_device)
+
+    # (3) overwrite the weight initializers with AdaRound's EXACT int4 + scale
+    m = onnx.load(path)
+    inits = {i.name: i for i in m.graph.initializer}
+    for nm in list(inits):
+        if not nm.endswith('.weight_quantized'): continue
+        base = nm[:-len('_quantized')]          # '<mod>.weight'
+        mod  = base[:-len('.weight')]           # '<mod>'
+        if mod not in qparams: continue
+        scale, qmin, qmax = qparams[mod]
+        scale = scale.detach().cpu()
+        inits[base + '_scale'].CopyFrom(
+            numpy_helper.from_array(scale.reshape(-1).float().numpy(), base + '_scale'))
+        int_ada = torch.round(ada_w[mod].double() / scale.double()).clamp(qmin, qmax).to(torch.int8).numpy()
+        t = inits[nm]; t.ClearField('int32_data'); t.raw_data = _pack_int4(int_ada.reshape(-1))
+    # drop the value_info that duplicates graph IO (an artifact ORT can leave behind)
+    io = {o.name for o in m.graph.output} | {i.name for i in m.graph.input}
+    keep = [vi for vi in m.graph.value_info if vi.name not in io]
+    del m.graph.value_info[:]; m.graph.value_info.extend(keep)
+    onnx.save(m, path)
+    return path
+
