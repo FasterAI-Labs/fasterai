@@ -2,6 +2,11 @@
 
 <!-- do not remove -->
 
+## Unreleased
+
+### Breaking Changes
+- **BREAKING**: Sensitivity analysis (`analyze_sensitivity`, `SensitivityAnalyzer`, `SensitivityResult`, `LayerSensitivity`) moved out of fasterai into the higher-level FasterAI workflow package; `fasterai.analyze.sensitivity` now raises `ImportError`. fasterai holds compression mechanisms only. See the FasterAI docs for the new import path.
+
 ## 0.3.3
 
 ### Bug Fixes
