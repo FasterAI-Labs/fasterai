@@ -51,39 +51,62 @@ if _HAS_INT4:
 # and `torch.ao.quantization.quantizer` — not in torchao: torchao 0.16 ships no
 # `xnnpack_quantizer` module, so this backend needs no third-party package.
 try:
-    from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
+    from torch.ao.quantization.quantize_pt2e import prepare_pt2e, prepare_qat_pt2e, convert_pt2e
     from torch.ao.quantization.quantizer import QuantizationSpec
     from torch.ao.quantization.quantizer.xnnpack_quantizer import (XNNPACKQuantizer,
                                                                    get_symmetric_quantization_config)
     from torch.ao.quantization.quantizer.xnnpack_quantizer_utils import QuantizationConfig
-    from torch.ao.quantization.observer import PerChannelMinMaxObserver
+    from torch.ao.quantization.observer import (PerChannelMinMaxObserver,
+                                                MovingAveragePerChannelMinMaxObserver)
+    from torch.ao.quantization.fake_quantize import FusedMovingAvgObsFakeQuantize
+    from torch.ao.quantization import move_exported_model_to_train, move_exported_model_to_eval
     _HAS_PT2E = True
 except ImportError:
     _HAS_PT2E = False
 
 # %% ../../nbs/quantize/quantizer.ipynb #ff65b476
+import types
+
 # Every quantized tensor of the pt2e config shares these: signed INT8 over a range symmetric around 0,
 # so the zero-point is 0 and static (never recomputed at run time).
 _INT8_SYM = dict(dtype=torch.int8, quant_min=-127, quant_max=127, is_dynamic=False)
+_QAT_FQ_ARGS = dict(eps=2 ** -12)  # the resolution torch's own QAT presets give their fake-quantizers
+_PT2E_MISSING = "The pt2e backend requires torch.ao.quantization.quantize_pt2e (PyTorch >= 2.1)."
 
 
+# The two builders below are deliberately left unannotated: the types they take and return
+# (`QuantizationConfig`, `XNNPACKQuantizer`) only exist when `_HAS_PT2E`, and this module must import
+# on a torch build that ships neither.
 def _symmetric_pt2e_config(
     per_channel: bool = True,  # One scale per output channel of a weight tensor, instead of one per tensor
+    is_qat: bool = False,      # Quantize through fake-quantize modules, for a model that keeps training
 ):
     "Build a fully-symmetric INT8 `QuantizationConfig` (zero_point == 0 on every quantized tensor)"
     # Portability: some ONNX consumers only accept quantized tensors whose zero_point is 0.
     # The stock `get_symmetric_quantization_config()` preset does not qualify: it is symmetric
-    # for the *weights* only, its activations stay affine (unsigned, non-zero zero_point).
-    activation = QuantizationSpec(**_INT8_SYM, qscheme=torch.per_tensor_symmetric,
-                                  observer_or_fake_quant_ctr=MinMaxObserver)
-    if per_channel:
-        weight = QuantizationSpec(**_INT8_SYM, qscheme=torch.per_channel_symmetric, ch_axis=0,
-                                  observer_or_fake_quant_ctr=PerChannelMinMaxObserver)
+    # for the *weights* only, its activations stay affine (unsigned, non-zero zero-point).
+    if is_qat:
+        # QAT trains THROUGH the quantizer: the module inserted in the graph must round the tensor and
+        # pass the gradient straight through, which an observer alone (PTQ) does not do.
+        per_tensor_observer = MovingAverageMinMaxObserver
+        per_channel_observer = MovingAveragePerChannelMinMaxObserver
     else:
-        weight = QuantizationSpec(**_INT8_SYM, qscheme=torch.per_tensor_symmetric,
-                                  observer_or_fake_quant_ctr=MinMaxObserver)
+        per_tensor_observer = MinMaxObserver
+        per_channel_observer = PerChannelMinMaxObserver
+
+    def _spec(qscheme, observer, **kwargs):
+        "One quantized tensor of the config, observed the way the flow that runs it needs"
+        ctr = FusedMovingAvgObsFakeQuantize.with_args(observer=observer, **_QAT_FQ_ARGS) if is_qat \
+            else observer
+        return QuantizationSpec(**_INT8_SYM, qscheme=qscheme, observer_or_fake_quant_ctr=ctr, **kwargs)
+
+    activation = _spec(torch.per_tensor_symmetric, per_tensor_observer)
+    if per_channel:
+        weight = _spec(torch.per_channel_symmetric, per_channel_observer, ch_axis=0)
+    else:
+        weight = _spec(torch.per_tensor_symmetric, per_tensor_observer)
     return QuantizationConfig(input_activation=activation, output_activation=activation,
-                              weight=weight, bias=None, is_qat=False)
+                              weight=weight, bias=None, is_qat=is_qat)
 
 
 def _pt2e_quantizer(
@@ -92,12 +115,13 @@ def _pt2e_quantizer(
     "Build the pt2e quantizer that applies `spec`"
     if spec is None: spec = _resolve_spec('pt2e')
     per_channel = spec.qscheme == 'per_channel'
+    is_qat = spec.method == 'qat'  # the same precision, applied to a model that is still training
     if spec.symmetric:
-        config = _symmetric_pt2e_config(per_channel)
+        config = _symmetric_pt2e_config(per_channel, is_qat)
     else:
         # `symmetric=False` is the caller asking for the stock preset, whose activations stay affine:
         # more range for the same 8 bits, at the price of non-zero zero-points in the exported graph.
-        config = get_symmetric_quantization_config(is_per_channel=per_channel)
+        config = get_symmetric_quantization_config(is_per_channel=per_channel, is_qat=is_qat)
     return XNNPACKQuantizer().set_global(config)
 
 
@@ -115,7 +139,8 @@ def _prepare_pt2e(
 ) -> nn.Module:
     "Capture `model` with `torch.export` and insert the INT8 observers `spec` asks for"
     if not _HAS_PT2E:
-        raise ImportError("The pt2e backend requires torch.ao.quantization.quantize_pt2e (PyTorch >= 2.1).")
+        raise ImportError(_PT2E_MISSING)
+    if spec is None: spec = _resolve_spec('pt2e')
     # `torch.export` captures a STATIC batch size: the graph is specialised to
     # `example_input.shape[0]`, so calibrate and deploy with that same batch size.
     example_input = example_input.to(_model_device(model))  # capture where the model already lives
@@ -125,7 +150,45 @@ def _prepare_pt2e(
         raise RuntimeError(
             "pt2e quantization needs a model that torch.export can capture as a single graph. "
             f"Capture failed with {type(e).__name__}: {e}") from e
-    return prepare_pt2e(exported.module(), _pt2e_quantizer(spec))
+    # QAT inserts fake-quantize modules where PTQ inserts observers, so every forward pass the training
+    # loop runs already carries the rounding error the weights are being trained against.
+    prepare = prepare_qat_pt2e if spec.method == 'qat' else prepare_pt2e
+    return prepare(exported.module(), _pt2e_quantizer(spec))
+
+
+def _convert_pt2e(
+    prepared: nn.Module,  # Model returned by `_prepare_pt2e`, calibrated (PTQ) or trained (QAT)
+) -> nn.Module:
+    "Freeze the observed scales into a quantized graph"
+    # The guard is not dead code: it is what lets `quantize_callback` import this name unconditionally
+    # and still fail with one clear message on a torch build that ships no pt2e.
+    if not _HAS_PT2E:
+        raise ImportError(_PT2E_MISSING)
+    return convert_pt2e(prepared)
+
+
+def _exported_train(self, mode: bool = True) -> nn.Module:
+    "`.train()` for a module captured by torch.export, which refuses the eager one"
+    return move_exported_model_to_train(self) if mode else move_exported_model_to_eval(self)
+
+
+def _exported_eval(self) -> nn.Module:
+    "`.eval()` for a module captured by torch.export, which refuses the eager one"
+    return move_exported_model_to_eval(self)
+
+
+def _bind_exported_modes(
+    graph_module: nn.Module,  # Module captured by torch.export, prepared or converted
+) -> nn.Module:
+    "Give an exported graph module a working `.train()`/`.eval()`, so a training loop can drive it"
+    # An exported module raises NotImplementedError on `.train()`/`.eval()`: the eager flags mean nothing
+    # to a captured graph, where torch rewrites the batch-norm and dropout NODES instead. These two bind
+    # to that rewrite — as instance methods, so that a deepcopy of the module rebinds them to the copy.
+    if not _HAS_PT2E:  # importable unconditionally, callable only where pt2e is (see `_convert_pt2e`)
+        raise ImportError(_PT2E_MISSING)
+    graph_module.train = types.MethodType(_exported_train, graph_module)
+    graph_module.eval = types.MethodType(_exported_eval, graph_module)
+    return graph_module
 
 
 def _batch_input(batch: Any) -> Any:
@@ -187,7 +250,7 @@ class Quantizer:
 
         if backend == 'pt2e':
             if not _HAS_PT2E:
-                raise ImportError("pt2e backend requires torch.ao.quantization.quantize_pt2e (PyTorch >= 2.1)")
+                raise ImportError(_PT2E_MISSING)
             return
 
         # Legacy backend setup
@@ -382,8 +445,9 @@ class Quantizer:
         "Quantize a model with the pt2e flow: INT8 in the precision the spec asks for"
         if self.method != "static":
             raise ValueError(f"pt2e backend does not support method='{self.method}'. "
-                             "pt2e supports method='static' in this release (post-training "
-                             "quantization on calibration data).")
+                             "`Quantizer.quantize` runs method='static' (post-training quantization on "
+                             "calibration data); pt2e QAT happens inside a training loop, so it is run "
+                             "by QuantizeCallback(backend='pt2e').")
         if calibration_dl is None:
             raise ValueError("pt2e backend requires calibration_dl: static quantization needs calibration data.")
 
@@ -394,7 +458,7 @@ class Quantizer:
         self._calibrate_model(prepared, calibration_dl, max_samples=max_calibration_samples, device=device)
 
         if self.verbose: print("pt2e: converting to a quantized graph")
-        return convert_pt2e(prepared)
+        return _convert_pt2e(prepared)
 
     def quantize(self, 
                 model: nn.Module,                        # Model to quantize
