@@ -42,12 +42,83 @@ if _HAS_TORCHAO:
 if _HAS_INT4:
     _TORCHAO_CONFIGS['int4_weight_only'] = lambda: Int4WeightOnlyConfig(group_size=128)
 
+# %% ../../nbs/quantize/quantizer.ipynb #9aa89c26
+# The pt2e (PyTorch 2 Export) flow lives in torch core — `torch.ao.quantization.quantize_pt2e`
+# and `torch.ao.quantization.quantizer` — not in torchao: torchao 0.16 ships no
+# `xnnpack_quantizer` module, so this backend needs no third-party package.
+try:
+    from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
+    from torch.ao.quantization.quantizer import QuantizationSpec
+    from torch.ao.quantization.quantizer.xnnpack_quantizer import XNNPACKQuantizer
+    from torch.ao.quantization.quantizer.xnnpack_quantizer_utils import QuantizationConfig
+    from torch.ao.quantization.observer import PerChannelMinMaxObserver
+    _HAS_PT2E = True
+except ImportError:
+    _HAS_PT2E = False
+
+# %% ../../nbs/quantize/quantizer.ipynb #ff65b476
+def _symmetric_pt2e_config():
+    "Build a fully-symmetric INT8 `QuantizationConfig` (zero_point == 0 on every quantized tensor)"
+    # Portability: some ONNX consumers only accept quantized tensors whose zero_point is 0.
+    # The stock `get_symmetric_quantization_config()` preset does not qualify: it is symmetric
+    # for the *weights* only, its activations stay affine (unsigned, non-zero zero_point).
+    # Here both activations and weights use a symmetric qscheme over [-127, 127].
+    activation = QuantizationSpec(
+        dtype=torch.int8, quant_min=-127, quant_max=127,
+        qscheme=torch.per_tensor_symmetric, is_dynamic=False,
+        observer_or_fake_quant_ctr=MinMaxObserver)
+    weight = QuantizationSpec(
+        dtype=torch.int8, quant_min=-127, quant_max=127,
+        qscheme=torch.per_channel_symmetric, ch_axis=0, is_dynamic=False,
+        observer_or_fake_quant_ctr=PerChannelMinMaxObserver)
+    return QuantizationConfig(input_activation=activation, output_activation=activation,
+                              weight=weight, bias=None, is_qat=False)
+
+
+def _model_device(model: nn.Module) -> torch.device:
+    "Device on which `model` holds its tensors (CPU when it holds none)"
+    tensor = next(model.parameters(), None)
+    if tensor is None: tensor = next(model.buffers(), None)
+    return tensor.device if tensor is not None else torch.device('cpu')
+
+
+def _prepare_pt2e(model: nn.Module, example_input: torch.Tensor) -> nn.Module:
+    "Capture `model` with `torch.export` and insert symmetric INT8 observers"
+    if not _HAS_PT2E:
+        raise ImportError("The pt2e backend requires torch.ao.quantization.quantize_pt2e (PyTorch >= 2.1).")
+    # `torch.export` captures a STATIC batch size: the graph is specialised to
+    # `example_input.shape[0]`, so calibrate and deploy with that same batch size.
+    example_input = example_input.to(_model_device(model))  # capture where the model already lives
+    try:
+        exported = torch.export.export(model.eval(), (example_input,))
+    except Exception as e:
+        raise RuntimeError(
+            "pt2e quantization needs a model that torch.export can capture as a single graph. "
+            f"Capture failed with {type(e).__name__}: {e}") from e
+    return prepare_pt2e(exported.module(), XNNPACKQuantizer().set_global(_symmetric_pt2e_config()))
+
+
+def _batch_input(batch: Any) -> Any:
+    "Input part of a dataloader batch, whether it is a tensor or an (input, target) tuple"
+    if isinstance(batch, (list, tuple)) and len(batch) >= 1: batch = batch[0]
+    if hasattr(batch, 'data'): batch = batch.data
+    return batch
+
+
+def _first_input(dataloader: Any) -> torch.Tensor:
+    "First input tensor of `dataloader` (a fastai `DataLoaders`, a torch loader, or any iterable of batches)"
+    batch = dataloader.one_batch() if hasattr(dataloader, 'one_batch') else next(iter(dataloader))
+    inputs = _batch_input(batch)
+    if not isinstance(inputs, torch.Tensor):
+        raise TypeError(f"Calibration data must yield tensors, got {type(inputs).__name__}.")
+    return inputs
+
 # %% ../../nbs/quantize/quantizer.ipynb #fb1fd84a-dcf6-4ec5-966e-6fdd01e1d19b
 import contextlib
 
 class Quantizer:
     def __init__(self, 
-                 backend: str = "x86",                   # Target backend: 'x86', 'qnnpack', 'fbgemm', or 'torchao'
+                 backend: str = "x86",                   # Target backend: 'x86', 'qnnpack', 'fbgemm', 'torchao', or 'pt2e'
                  method: str = "static",                 # Method: 'static', 'dynamic', 'qat', 'int8_weight_only', 'int8_dynamic'
                  qconfig_mapping: dict | None = None,    # Optional custom quantization config (legacy backends only)
                  custom_configs: dict | None = None,     # Custom module-specific configurations
@@ -62,6 +133,11 @@ class Quantizer:
                 raise ImportError("torchao backend requires torchao. Install with: pip install torchao")
             if method not in _TORCHAO_CONFIGS:
                 raise ValueError(f"Unknown torchao method '{method}'. Available: {list(_TORCHAO_CONFIGS.keys())}")
+            return
+
+        if backend == 'pt2e':
+            if not _HAS_PT2E:
+                raise ImportError("pt2e backend requires torch.ao.quantization.quantize_pt2e (PyTorch >= 2.1)")
             return
 
         # Legacy backend setup
@@ -150,7 +226,8 @@ class Quantizer:
     
     def _calibrate_model(self, model, dataloader, max_samples=None, device='cpu'):
         "Calibrate the model on CPU (PyTorch quantization is CPU-only)."
-        model.eval()
+        try: model.eval()
+        except NotImplementedError: pass  # an exported graph module is already in inference mode
         device = torch.device(device)
         model = model.to(device)
         
@@ -164,8 +241,7 @@ class Quantizer:
         samples_seen = 0
         with torch.no_grad():
             for i, batch in enumerate(data_iter):
-                inputs = batch[0] if isinstance(batch, (list, tuple)) and len(batch) >= 1 else batch
-                if hasattr(inputs, 'data'): inputs = inputs.data
+                inputs = _batch_input(batch)
                 if isinstance(inputs, (list, tuple)):
                     inputs = [x.to(device) if isinstance(x, torch.Tensor) else x for x in inputs]
                 else:
@@ -203,9 +279,27 @@ class Quantizer:
             print(f"torchao: quantized {n} layers")
         return model
 
+    def _quantize_pt2e(self, model, calibration_dl, max_calibration_samples, device):
+        "Quantize a model with the pt2e flow: symmetric INT8, portable Q/DQ graph"
+        if self.method != "static":
+            raise ValueError(f"pt2e backend does not support method='{self.method}'. "
+                             "pt2e supports method='static' in this release (post-training "
+                             "quantization on calibration data).")
+        if calibration_dl is None:
+            raise ValueError("pt2e backend requires calibration_dl: static quantization needs calibration data.")
+
+        if self.verbose: print("pt2e: capturing the model with torch.export")
+        prepared = _prepare_pt2e(model, _first_input(calibration_dl))
+
+        if self.verbose: print(f"pt2e: calibrating with up to {max_calibration_samples} samples")
+        self._calibrate_model(prepared, calibration_dl, max_samples=max_calibration_samples, device=device)
+
+        if self.verbose: print("pt2e: converting to a quantized graph")
+        return convert_pt2e(prepared)
+
     def quantize(self, 
                 model: nn.Module,                        # Model to quantize
-                calibration_dl: Any = None,              # Dataloader for calibration (not needed for torchao weight-only)
+                calibration_dl: Any = None,              # Dataloader for calibration (required by 'static', 'qat' and 'pt2e'; not needed for torchao weight-only)
                 max_calibration_samples: int = 100,      # Maximum number of samples to use for calibration
                 device: str | torch.device = 'cpu'       # Device to use for calibration
     ) -> nn.Module:
@@ -214,6 +308,11 @@ class Quantizer:
         if self.backend == 'torchao':
             return self._quantize_torchao(model)
 
+        # pt2e backend: self-contained path, so that a failure surfaces to the caller instead
+        # of falling through to the legacy flow below (which returns the unquantized model).
+        if self.backend == 'pt2e':
+            return self._quantize_pt2e(model, calibration_dl, max_calibration_samples, device)
+
         # Legacy backends below
         if self.method == "dynamic":
             if self.verbose: print(f"Performing dynamic quantization with {self.backend} backend")
@@ -221,7 +320,7 @@ class Quantizer:
             return self._quantize_dynamic(model)
         
         self._apply_custom_configs()
-        example_batch, _ = calibration_dl.one_batch()
+        example_batch = _first_input(calibration_dl)
         
         try:
             if self.verbose: print(f"Preparing model for {self.method} quantization with {self.backend} backend")

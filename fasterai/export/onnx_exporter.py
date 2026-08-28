@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import warnings
+from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
@@ -13,7 +14,7 @@ import torch
 import torch.nn as nn
 
 # %% auto #0
-__all__ = ['export_onnx', 'ONNXModel', 'verify_onnx']
+__all__ = ['export_onnx', 'ONNXModel', 'verify_onnx', 'export_qdq', 'QDQStats', 'qdq_stats', 'verify_qdq']
 
 # %% ../../nbs/export/onnx_exporter.ipynb #dep-checks
 @lru_cache(maxsize=None)
@@ -185,3 +186,170 @@ def verify_onnx(
         pt_out = model(sample).cpu().numpy()
     onnx_out = ONNXModel(onnx_path)(sample.cpu()).numpy()
     return np.allclose(pt_out, onnx_out, rtol=rtol, atol=atol)
+
+# %% ../../nbs/export/onnx_exporter.ipynb #88b15f63
+_INT8 = 3  # onnx.TensorProto.INT8
+
+
+def _set_eval(model: nn.Module) -> None:
+    "Put `model` in eval mode, tolerating exported graph modules (they reject `.eval()`)"
+    try: model.eval()
+    except NotImplementedError: pass  # a torch.export'd module is already in inference mode
+
+
+def _pt2e_translation_table() -> dict:
+    "ONNX translations for the `quantized_decomposed` q/dq operators produced by the pt2e flow"
+    _require("onnxscript", install_hint="pip install onnxscript")
+    from onnxscript import opset18 as op
+
+    # Plain functions on purpose: wrapping them in `@onnxscript.script` makes them return a
+    # tuple, which the consuming operator (Conv, Gemm, ...) then rejects.
+    # The Cast is needed because pt2e stores zero-points as int64, while ONNX wants them in
+    # the quantized dtype.
+    def quantize_per_tensor(x, scale, zero_point, quant_min: int, quant_max: int, dtype: int):
+        return op.QuantizeLinear(x, scale, op.Cast(zero_point, to=_INT8))
+
+    def dequantize_per_tensor(x, scale, zero_point, quant_min: int, quant_max: int, dtype: int):
+        return op.DequantizeLinear(x, scale, op.Cast(zero_point, to=_INT8))
+
+    def quantize_per_channel(x, scales, zero_points, axis: int, quant_min: int, quant_max: int, dtype: int):
+        return op.QuantizeLinear(x, scales, op.Cast(zero_points, to=_INT8), axis=axis)
+
+    def dequantize_per_channel(x, scales, zero_points, axis: int, quant_min: int, quant_max: int, dtype: int):
+        return op.DequantizeLinear(x, scales, op.Cast(zero_points, to=_INT8), axis=axis)
+
+    ops = torch.ops.quantized_decomposed
+    table = {
+        ops.quantize_per_tensor.default: quantize_per_tensor,
+        ops.dequantize_per_tensor.default: dequantize_per_tensor,
+        ops.quantize_per_channel.default: quantize_per_channel,
+        ops.dequantize_per_channel.default: dequantize_per_channel,
+    }
+    # The `.tensor` overloads take the scale/zero-point as tensors rather than as python scalars
+    for name, translation in (("quantize_per_tensor", quantize_per_tensor),
+                              ("dequantize_per_tensor", dequantize_per_tensor)):
+        overload = getattr(getattr(ops, name), "tensor", None)
+        if overload is not None: table[overload] = translation
+    return table
+
+# %% ../../nbs/export/onnx_exporter.ipynb #467ceb9a
+def export_qdq(
+    model: nn.Module,                      # Quantized model, typically from `Quantizer(backend='pt2e')`
+    sample: torch.Tensor,                  # Example input (with batch dim); use the calibration batch size
+    output_path: str | Path,               # Output .onnx file path
+    *,
+    opset_version: int = 18,               # ONNX opset version (18+ for per-channel QuantizeLinear)
+    dynamic_batch: bool = False,           # Ask for a dynamic batch dimension (experimental)
+    input_names: list[str] | None = None,  # Names for input tensors
+    output_names: list[str] | None = None, # Names for output tensors
+) -> Path:
+    "Export a quantized model to ONNX, keeping its Q/DQ node pairs intact"
+    # Separate from `export_onnx` on purpose: that function runs `onnxoptimizer.optimize()`,
+    # whose fusion passes fold away the very Q/DQ pairs this export exists to preserve.
+    _require("onnx", "onnxscript", install_hint="pip install onnx onnxscript")
+    import onnx
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    input_names = input_names or ["input"]
+    output_names = output_names or ["output"]
+
+    dynamic_shapes = None
+    if dynamic_batch:
+        warnings.warn("dynamic_batch=True is experimental — some consumers mis-handle the "
+                      "post-pooling reshape with a dynamic batch.", UserWarning, stacklevel=2)
+        dynamic_shapes = ({0: torch.export.Dim("batch")},)
+
+    _set_eval(model)
+    program = torch.onnx.export(
+        model, (sample,),
+        dynamo=True,  # the dynamo exporter is what accepts a custom translation table
+        opset_version=opset_version,
+        input_names=input_names,
+        output_names=output_names,
+        dynamic_shapes=dynamic_shapes,
+        custom_translation_table=_pt2e_translation_table(),
+    )
+    program.save(str(output_path))
+
+    if dynamic_batch:  # report what was produced, not what was asked for
+        batch_dim = onnx.load(str(output_path)).graph.input[0].type.tensor_type.shape.dim[0]
+        if not batch_dim.dim_param:
+            warnings.warn("The exported graph kept a STATIC batch dimension: a module captured by "
+                          "torch.export is specialised to the batch size it was captured with. "
+                          "Re-capture the source model with a dynamic batch before quantizing.",
+                          UserWarning, stacklevel=2)
+    return output_path
+
+# %% ../../nbs/export/onnx_exporter.ipynb #f7838382
+@dataclass(slots=True)
+class QDQStats:
+    "Quantization nodes found in an ONNX graph"
+    n_quantize: int            # number of QuantizeLinear nodes
+    n_dequantize: int          # number of DequantizeLinear nodes
+    n_per_channel: int         # nodes whose scale holds one value per channel
+    n_nonzero_zero_point: int  # nodes whose zero-point is not all zeros
+
+    def as_dict(self) -> dict[str, int]: return asdict(self)
+
+
+def qdq_stats(
+    onnx_path: str | Path,  # Path to an ONNX model
+) -> QDQStats:
+    "Count the Q/DQ nodes of an ONNX graph and check their zero-points"
+    _require("onnx", install_hint="pip install onnx")
+    import onnx
+    from onnx import numpy_helper
+
+    graph = onnx.load(str(onnx_path)).graph
+    constants = {init.name: numpy_helper.to_array(init) for init in graph.initializer}
+    for node in graph.node:  # a producer may emit scales/zero-points as Constant nodes
+        if node.op_type == "Constant":
+            for attr in node.attribute:
+                if attr.name == "value": constants[node.output[0]] = numpy_helper.to_array(attr.t)
+
+    def _constant(name, node, role):
+        "Value of a graph constant, or a clear error rather than a silently wrong count"
+        if name not in constants:
+            raise ValueError(f"Cannot read the {role} of node '{node.name or node.op_type}': "
+                             f"'{name}' is not a graph constant.")
+        return constants[name]
+
+    n_quantize = n_dequantize = n_per_channel = n_nonzero_zero_point = 0
+    for node in graph.node:
+        if node.op_type == "QuantizeLinear": n_quantize += 1
+        elif node.op_type == "DequantizeLinear": n_dequantize += 1
+        else: continue
+        # A per-tensor scale is a scalar, a per-channel one holds one value per channel.
+        # (The `axis` attribute cannot be used: exporters also write it on per-tensor nodes.)
+        if _constant(node.input[1], node, "scale").size > 1: n_per_channel += 1
+        # zero_point is an optional third input: when omitted it is implicitly zero
+        zero_point = node.input[2] if len(node.input) > 2 else ""
+        if zero_point and np.any(_constant(zero_point, node, "zero_point") != 0): n_nonzero_zero_point += 1
+    return QDQStats(n_quantize, n_dequantize, n_per_channel, n_nonzero_zero_point)
+
+# %% ../../nbs/export/onnx_exporter.ipynb #1eaa6ad7
+def verify_qdq(
+    model: nn.Module,       # Reference PyTorch model (the quantized module that was exported)
+    onnx_path: str | Path,  # Path to the exported QDQ ONNX model
+    sample: torch.Tensor,   # Test inputs, batch dimension first
+    n_batches: int = 1,     # Split `sample` into this many EQUAL batches (a static graph only accepts its own batch size)
+) -> float:
+    "Fraction of inputs on which the ONNX graph and the PyTorch model predict the same class"
+    _require("onnxruntime", install_hint="pip install onnxruntime")
+    if sample.shape[0] == 0: raise ValueError("`sample` is empty: there is nothing to compare.")
+    # Equal batches only: a graph exported with a static batch rejects a shorter last batch,
+    # and `torch.chunk` would silently produce one (10 inputs in 4 batches gives 3/3/3/1).
+    if sample.shape[0] % n_batches:
+        raise ValueError(f"`sample` holds {sample.shape[0]} inputs, which does not split into "
+                         f"{n_batches} equal batches.")
+    _set_eval(model)
+    onnx_model = ONNXModel(onnx_path)
+
+    agreed = total = 0
+    for chunk in torch.split(sample.cpu(), sample.shape[0] // n_batches, dim=0):
+        with torch.no_grad(): torch_pred = model(chunk).argmax(-1).cpu().numpy()
+        onnx_pred = onnx_model(chunk).numpy().argmax(-1)
+        agreed += int((torch_pred == onnx_pred).sum())
+        total += torch_pred.size
+    return agreed / total
