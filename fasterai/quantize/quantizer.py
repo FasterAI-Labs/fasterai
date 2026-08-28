@@ -7,12 +7,14 @@ __all__ = ['Quantizer']
 import torch
 import torch.nn as nn
 from fastcore.basics import store_attr
+from ..core.precision import QuantSpec, SPEC_ATTR, _resolve_spec
 from torch.ao.quantization import QConfig, get_default_qconfig_mapping, get_default_qat_qconfig_mapping
 from torch.ao.quantization.quantize_fx import prepare_fx, prepare_qat_fx, convert_fx
 from torch.ao.quantization.observer import MinMaxObserver, MovingAverageMinMaxObserver
 from torch.ao.quantization.fake_quantize import FakeQuantize
 from torch.quantization import quantize_dynamic
 from torch.ao.quantization.qconfig import default_dynamic_qconfig
+from dataclasses import replace
 from typing import Any
 import warnings
 import copy
@@ -35,12 +37,14 @@ except ImportError:
     _HAS_TORCHAO = False
     _HAS_INT4 = False
 
+# The recipes whose kernels this environment ships. Called with no argument each builds exactly the
+# configuration this backend has always used; a group size comes from the resolved precision.
 _TORCHAO_CONFIGS = {}
 if _HAS_TORCHAO:
-    _TORCHAO_CONFIGS['int8_weight_only'] = lambda: Int8WeightOnlyConfig()
-    _TORCHAO_CONFIGS['int8_dynamic'] = lambda: Int8DynamicActivationInt8WeightConfig()
+    _TORCHAO_CONFIGS['int8_weight_only'] = Int8WeightOnlyConfig
+    _TORCHAO_CONFIGS['int8_dynamic'] = Int8DynamicActivationInt8WeightConfig
 if _HAS_INT4:
-    _TORCHAO_CONFIGS['int4_weight_only'] = lambda: Int4WeightOnlyConfig(group_size=128)
+    _TORCHAO_CONFIGS['int4_weight_only'] = Int4WeightOnlyConfig
 
 # %% ../../nbs/quantize/quantizer.ipynb #9aa89c26
 # The pt2e (PyTorch 2 Export) flow lives in torch core — `torch.ao.quantization.quantize_pt2e`
@@ -49,7 +53,8 @@ if _HAS_INT4:
 try:
     from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
     from torch.ao.quantization.quantizer import QuantizationSpec
-    from torch.ao.quantization.quantizer.xnnpack_quantizer import XNNPACKQuantizer
+    from torch.ao.quantization.quantizer.xnnpack_quantizer import (XNNPACKQuantizer,
+                                                                   get_symmetric_quantization_config)
     from torch.ao.quantization.quantizer.xnnpack_quantizer_utils import QuantizationConfig
     from torch.ao.quantization.observer import PerChannelMinMaxObserver
     _HAS_PT2E = True
@@ -57,22 +62,43 @@ except ImportError:
     _HAS_PT2E = False
 
 # %% ../../nbs/quantize/quantizer.ipynb #ff65b476
-def _symmetric_pt2e_config():
+# Every quantized tensor of the pt2e config shares these: signed INT8 over a range symmetric around 0,
+# so the zero-point is 0 and static (never recomputed at run time).
+_INT8_SYM = dict(dtype=torch.int8, quant_min=-127, quant_max=127, is_dynamic=False)
+
+
+def _symmetric_pt2e_config(
+    per_channel: bool = True,  # One scale per output channel of a weight tensor, instead of one per tensor
+):
     "Build a fully-symmetric INT8 `QuantizationConfig` (zero_point == 0 on every quantized tensor)"
     # Portability: some ONNX consumers only accept quantized tensors whose zero_point is 0.
     # The stock `get_symmetric_quantization_config()` preset does not qualify: it is symmetric
     # for the *weights* only, its activations stay affine (unsigned, non-zero zero_point).
-    # Here both activations and weights use a symmetric qscheme over [-127, 127].
-    activation = QuantizationSpec(
-        dtype=torch.int8, quant_min=-127, quant_max=127,
-        qscheme=torch.per_tensor_symmetric, is_dynamic=False,
-        observer_or_fake_quant_ctr=MinMaxObserver)
-    weight = QuantizationSpec(
-        dtype=torch.int8, quant_min=-127, quant_max=127,
-        qscheme=torch.per_channel_symmetric, ch_axis=0, is_dynamic=False,
-        observer_or_fake_quant_ctr=PerChannelMinMaxObserver)
+    activation = QuantizationSpec(**_INT8_SYM, qscheme=torch.per_tensor_symmetric,
+                                  observer_or_fake_quant_ctr=MinMaxObserver)
+    if per_channel:
+        weight = QuantizationSpec(**_INT8_SYM, qscheme=torch.per_channel_symmetric, ch_axis=0,
+                                  observer_or_fake_quant_ctr=PerChannelMinMaxObserver)
+    else:
+        weight = QuantizationSpec(**_INT8_SYM, qscheme=torch.per_tensor_symmetric,
+                                  observer_or_fake_quant_ctr=MinMaxObserver)
     return QuantizationConfig(input_activation=activation, output_activation=activation,
                               weight=weight, bias=None, is_qat=False)
+
+
+def _pt2e_quantizer(
+    spec: QuantSpec | None = None,  # Precision to apply; `None` resolves the pt2e default
+):
+    "Build the pt2e quantizer that applies `spec`"
+    if spec is None: spec = _resolve_spec('pt2e')
+    per_channel = spec.qscheme == 'per_channel'
+    if spec.symmetric:
+        config = _symmetric_pt2e_config(per_channel)
+    else:
+        # `symmetric=False` is the caller asking for the stock preset, whose activations stay affine:
+        # more range for the same 8 bits, at the price of non-zero zero-points in the exported graph.
+        config = get_symmetric_quantization_config(is_per_channel=per_channel)
+    return XNNPACKQuantizer().set_global(config)
 
 
 def _model_device(model: nn.Module) -> torch.device:
@@ -82,8 +108,12 @@ def _model_device(model: nn.Module) -> torch.device:
     return tensor.device if tensor is not None else torch.device('cpu')
 
 
-def _prepare_pt2e(model: nn.Module, example_input: torch.Tensor) -> nn.Module:
-    "Capture `model` with `torch.export` and insert symmetric INT8 observers"
+def _prepare_pt2e(
+    model: nn.Module,              # Model to capture
+    example_input: torch.Tensor,   # One batch, whose batch size the captured graph is specialised to
+    spec: QuantSpec | None = None, # Precision to apply; `None` resolves the pt2e default
+) -> nn.Module:
+    "Capture `model` with `torch.export` and insert the INT8 observers `spec` asks for"
     if not _HAS_PT2E:
         raise ImportError("The pt2e backend requires torch.ao.quantization.quantize_pt2e (PyTorch >= 2.1).")
     # `torch.export` captures a STATIC batch size: the graph is specialised to
@@ -95,7 +125,7 @@ def _prepare_pt2e(model: nn.Module, example_input: torch.Tensor) -> nn.Module:
         raise RuntimeError(
             "pt2e quantization needs a model that torch.export can capture as a single graph. "
             f"Capture failed with {type(e).__name__}: {e}") from e
-    return prepare_pt2e(exported.module(), XNNPACKQuantizer().set_global(_symmetric_pt2e_config()))
+    return prepare_pt2e(exported.module(), _pt2e_quantizer(spec))
 
 
 def _batch_input(batch: Any) -> Any:
@@ -116,23 +146,43 @@ def _first_input(dataloader: Any) -> torch.Tensor:
 # %% ../../nbs/quantize/quantizer.ipynb #fb1fd84a-dcf6-4ec5-966e-6fdd01e1d19b
 import contextlib
 
+_GRAMMAR_ARGS = ('weight_bits', 'act_bits', 'qscheme', 'group_size', 'symmetric')  # the precision arguments
+_CONV_TYPES = (nn.Conv1d, nn.Conv2d, nn.Conv3d)
+
 class Quantizer:
     def __init__(self, 
-                 backend: str = "x86",                   # Target backend: 'x86', 'qnnpack', 'fbgemm', 'torchao', or 'pt2e'
+                 backend: str = "x86",                   # Target backend: 'x86', 'qnnpack', 'fbgemm', 'onednn', 'torchao', or 'pt2e'
                  method: str = "static",                 # Method: 'static', 'dynamic', 'qat', 'int8_weight_only', 'int8_dynamic'
                  qconfig_mapping: dict | None = None,    # Optional custom quantization config (legacy backends only)
                  custom_configs: dict | None = None,     # Custom module-specific configurations
                  use_per_tensor: bool = False,           # Force per-tensor quantization (legacy backends only)
-                 verbose: bool = False                   # Enable verbose output
+                 verbose: bool = False,                  # Enable verbose output
+                 *,
+                 weight_bits: int | dict | None = None,  # Weight width, or {layer_name: width}; None = the backend's own
+                 act_bits: int | None = None,            # Activation width (16 leaves them in floating point); None = the backend's own
+                 qscheme: str | None = None,             # Weight axis: 'per_tensor', 'per_channel' or 'per_group'; None = the backend's own
+                 group_size: int | None = None,          # Weights sharing one scale (qscheme='per_group')
+                 symmetric: bool | None = None,          # Force a zero-point of 0 everywhere; None = the backend's own
     ):
         "Initialize a quantizer with specified backend and options."
         store_attr()
+        self._custom_mapping = qconfig_mapping is not None  # the caller brought their own configuration
+        if self._custom_mapping and self._asked_precision():
+            raise ValueError("`qconfig_mapping` replaces the whole quantization configuration, so the "
+                             "precision arguments cannot be applied on top of it. Keep one of the two.")
+        # One resolution, before anything is built: a precision the backend cannot honor raises here,
+        # rather than being quietly replaced by one it can (see `fasterai.core.precision`).
+        self.spec = _resolve_spec(backend, method, weight_bits=weight_bits, act_bits=act_bits,
+                                  qscheme=qscheme, group_size=group_size, symmetric=symmetric,
+                                  use_per_tensor=use_per_tensor)
+        self.method = self.spec.method  # on torchao, naming a precision names the recipe that applies it
 
         if backend == 'torchao':
             if not _HAS_TORCHAO:
                 raise ImportError("torchao backend requires torchao. Install with: pip install torchao")
-            if method not in _TORCHAO_CONFIGS:
-                raise ValueError(f"Unknown torchao method '{method}'. Available: {list(_TORCHAO_CONFIGS.keys())}")
+            if self.method not in _TORCHAO_CONFIGS:
+                raise ValueError(f"torchao method '{self.method}' is not available in this environment "
+                                 f"(its kernels are missing). Available: {list(_TORCHAO_CONFIGS)}")
             return
 
         if backend == 'pt2e':
@@ -146,10 +196,54 @@ class Quantizer:
                 self.qconfig_mapping = get_default_qat_qconfig_mapping(backend)
             else:
                 self.qconfig_mapping = get_default_qconfig_mapping(backend)
-            if use_per_tensor:
+            # `use_per_tensor` is not `spec.qscheme == 'per_tensor'`: the flag REPLACES the default
+            # mapping, while the spec field only reports where the weight scales live. qnnpack shows the
+            # difference — its default mapping is already per-tensor, and must be left alone. Only an
+            # explicit request flips the flag.
+            if qscheme == 'per_tensor': self.use_per_tensor = True
+            if self.use_per_tensor:
                 self._update_qconfig_for_per_tensor()
+            for name, bits in (self.spec.layer_bits or {}).items():
+                # 16 = left in floating point: no qconfig at all for that module
+                if bits == 16: self.qconfig_mapping.set_module_name(name, None)
         else:
             self.qconfig_mapping = qconfig_mapping
+
+    def _asked_precision(self) -> bool:
+        "Whether the caller named any part of the precision grammar"
+        return self.use_per_tensor or any(getattr(self, a) is not None for a in _GRAMMAR_ARGS)
+
+    def _check_model(self, model: nn.Module) -> None:
+        "Refuse a model the resolved precision cannot be applied to, before it is touched"
+        if not (self.spec.layer_bits or self.backend == 'torchao'): return
+        named = dict(model.named_modules())
+        missing = [n for n in (self.spec.layer_bits or {}) if n not in named]
+        if missing:
+            raise ValueError(f"`weight_bits` names layers this model does not have: {missing}. "
+                             "Use the names `model.named_modules()` reports.")
+        if self.backend != 'torchao': return
+        # torchao rewrites Linear layers only. Quantizing a model it cannot touch, or quantizing per
+        # group around convolutions it will skip, is the silent half-quantization this grammar refuses.
+        convs = [n for n, m in named.items() if isinstance(m, _CONV_TYPES)]
+        if not any(isinstance(m, nn.Linear) for m in named.values()):
+            raise ValueError(
+                f"backend='torchao' rewrites Linear layers only, and this model has none "
+                f"({len(convs)} convolution(s)): quantization would leave every layer in floating "
+                "point. Use backend='x86' (or 'pt2e') for a convolutional model.")
+        if self.spec.qscheme == 'per_group' and convs:
+            shown = ', '.join(convs[:3]) + (', ...' if len(convs) > 3 else '')
+            raise ValueError(
+                f"per-group quantization rewrites Linear layers only, and this model has "
+                f"{len(convs)} convolution(s) ({shown}) that would silently stay in floating point. "
+                "Quantize a convolutional model per channel (qscheme='per_channel').")
+
+    def _tag(self, quantized: nn.Module, source: nn.Module) -> nn.Module:
+        "Record on the quantized model which precision cell produced it"
+        # Two ways the spec can fail to describe what ran, and neither may be recorded: the legacy paths
+        # hand the SOURCE model back when they fail (`is not`), and a caller-supplied `qconfig_mapping`
+        # decides the configuration itself.
+        if quantized is not source and not self._custom_mapping: setattr(quantized, SPEC_ATTR, self.spec)
+        return quantized
 
     @contextlib.contextmanager
     def _quantized_engine(self):
@@ -262,10 +356,15 @@ class Quantizer:
             print(f"Dynamic quantization failed with error: {e}")
             return model
 
+    def _torchao_config(self):
+        "torchao configuration for the resolved precision"
+        config = _TORCHAO_CONFIGS[self.method]
+        return config(group_size=self.spec.group_size) if self.spec.qscheme == 'per_group' else config()
+
     def _quantize_torchao(self, model):
         "Quantize a model using torchao backend"
         model = copy.deepcopy(model).eval()
-        config = _TORCHAO_CONFIGS[self.method]()
+        config = self._torchao_config()
         if self.verbose:
             print(f"torchao: applying {self.method} ({type(config).__name__})")
         with warnings.catch_warnings():
@@ -280,7 +379,7 @@ class Quantizer:
         return model
 
     def _quantize_pt2e(self, model, calibration_dl, max_calibration_samples, device):
-        "Quantize a model with the pt2e flow: symmetric INT8, portable Q/DQ graph"
+        "Quantize a model with the pt2e flow: INT8 in the precision the spec asks for"
         if self.method != "static":
             raise ValueError(f"pt2e backend does not support method='{self.method}'. "
                              "pt2e supports method='static' in this release (post-training "
@@ -289,7 +388,7 @@ class Quantizer:
             raise ValueError("pt2e backend requires calibration_dl: static quantization needs calibration data.")
 
         if self.verbose: print("pt2e: capturing the model with torch.export")
-        prepared = _prepare_pt2e(model, _first_input(calibration_dl))
+        prepared = _prepare_pt2e(model, _first_input(calibration_dl), self.spec)
 
         if self.verbose: print(f"pt2e: calibrating with up to {max_calibration_samples} samples")
         self._calibrate_model(prepared, calibration_dl, max_samples=max_calibration_samples, device=device)
@@ -304,20 +403,22 @@ class Quantizer:
                 device: str | torch.device = 'cpu'       # Device to use for calibration
     ) -> nn.Module:
         "Quantize a model using the specified backend and method."
+        self._check_model(model)
+
         # torchao backend
         if self.backend == 'torchao':
-            return self._quantize_torchao(model)
+            return self._tag(self._quantize_torchao(model), model)
 
         # pt2e backend: self-contained path, so that a failure surfaces to the caller instead
         # of falling through to the legacy flow below (which returns the unquantized model).
         if self.backend == 'pt2e':
-            return self._quantize_pt2e(model, calibration_dl, max_calibration_samples, device)
+            return self._tag(self._quantize_pt2e(model, calibration_dl, max_calibration_samples, device), model)
 
         # Legacy backends below
         if self.method == "dynamic":
             if self.verbose: print(f"Performing dynamic quantization with {self.backend} backend")
             self._apply_custom_configs()
-            return self._quantize_dynamic(model)
+            return self._tag(self._quantize_dynamic(model), model)
         
         self._apply_custom_configs()
         example_batch = _first_input(calibration_dl)
@@ -339,12 +440,14 @@ class Quantizer:
                     if self.verbose: print("Encountered per_channel_affine error, retrying with per-tensor")
                     self.use_per_tensor = True
                     self._update_qconfig_for_per_tensor()
+                    # the spec follows the retry: the provenance must describe what actually ran
+                    self.spec = replace(self.spec, qscheme='per_tensor')
                     return self.quantize(model, calibration_dl, max_calibration_samples, device)
                 else:
                     raise e
             
             if self.verbose: print("Quantization complete")
-            return quantized_model
+            return self._tag(quantized_model, model)
             
         except Exception as e:
             print(f"Error during quantization: {e}")

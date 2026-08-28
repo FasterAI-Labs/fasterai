@@ -13,6 +13,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from ..core.precision import quant_spec
+
 # %% auto #0
 __all__ = ['export_onnx', 'ONNXModel', 'verify_onnx', 'export_qdq', 'QDQStats', 'qdq_stats', 'verify_qdq']
 
@@ -197,6 +199,19 @@ def _set_eval(model: nn.Module) -> None:
     except NotImplementedError: pass  # a torch.export'd module is already in inference mode
 
 
+def _check_exportable(model: nn.Module) -> None:
+    "Refuse a precision this export cannot write, reading the spec `Quantizer` left on the model"
+    # `Quantizer` tags every model it quantizes with the precision cell that produced it. A cell whose
+    # arithmetic has no QDQ ONNX form (INT4 weights, weight-only, run-time activation scales) is refused
+    # here, instead of producing a graph that silently describes something else.
+    spec = quant_spec(model)
+    if spec is None or spec.exports: return  # untagged models are exported as they always were
+    raise ValueError(
+        f"export_qdq cannot write this model: it was quantized {spec.label} with "
+        f"backend='{spec.backend}'. {spec.note} Quantize with Quantizer(backend='pt2e') for a graph "
+        "this export can write.")
+
+
 def _pt2e_translation_table() -> dict:
     "ONNX translations for the `quantized_decomposed` q/dq operators produced by the pt2e flow"
     _require("onnxscript", install_hint="pip install onnxscript")
@@ -246,6 +261,7 @@ def export_qdq(
     "Export a quantized model to ONNX, keeping its Q/DQ node pairs intact"
     # Separate from `export_onnx` on purpose: that function runs `onnxoptimizer.optimize()`,
     # whose fusion passes fold away the very Q/DQ pairs this export exists to preserve.
+    _check_exportable(model)
     _require("onnx", "onnxscript", install_hint="pip install onnx onnxscript")
     import onnx
 
@@ -347,9 +363,19 @@ def verify_qdq(
     onnx_model = ONNXModel(onnx_path)
 
     agreed = total = 0
+    reference = []
     for chunk in torch.split(sample.cpu(), sample.shape[0] // n_batches, dim=0):
         with torch.no_grad(): torch_pred = model(chunk).argmax(-1).cpu().numpy()
         onnx_pred = onnx_model(chunk).numpy().argmax(-1)
         agreed += int((torch_pred == onnx_pred).sum())
         total += torch_pred.size
+        reference.append(torch_pred.reshape(-1))
+
+    # A model that answers the same class to everything agrees with ANY graph, including a broken one:
+    # say so, because a vacuous check must never read as a silent pass.
+    if len(set(np.concatenate(reference).tolist())) <= 1:
+        warnings.warn(
+            "The reference model predicts a single class for every input, so this agreement is 1.0 "
+            "whatever the ONNX graph computes: the check is vacuous here. Use a trained model and "
+            "inputs whose predictions vary, or compare logits directly.", UserWarning, stacklevel=2)
     return agreed / total
