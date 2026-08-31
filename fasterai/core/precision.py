@@ -66,9 +66,10 @@ _CELLS = (
     PrecisionCell('torchao', 8, 8, ('per_channel',), (True,), False, False,
                   "INT8 weights with dynamically quantized activations: the activation scales are computed at "
                   "run time, so they cannot be written into a static Q/DQ graph."),
-    PrecisionCell('torchao', 8, 16, ('per_channel', 'per_group'), (True,), False, False,
+    PrecisionCell('torchao', 8, 16, ('per_channel', 'per_group'), (True,), True, False,
                   "INT8 weight-only: the activations stay in floating point, so there is no activation Q/DQ "
-                  "pair to export."),
+                  "pair to export. This is the one torchao cell that honors a per-layer `weight_bits` "
+                  "dict, over the Linear layers torchao rewrites."),
     PrecisionCell('torchao', 4, 16, ('per_group',), (True,), False, False,
                   "INT4 weight-only, a size lever: only torchao ships the kernels, and ONNX opset 18 has no "
                   "INT4 Q/DQ pair.", default_group_size=128),
@@ -175,7 +176,11 @@ def _split_weight_bits(weight_bits) -> tuple[int | None, dict | None]:
             if _check_width(f"weight_bits['{name}']", bits) not in (8, 16):
                 raise ValueError(f"`weight_bits['{name}']={bits}`: a per-layer width is 8 (quantize this "
                                  "layer) or 16 (leave it in floating point).")
-        return None, dict(weight_bits)
+        # This scalar does not set the width — `_resolve_method` does. It steers which precision CELL
+        # the request lands in, and therefore which refusal it gets: a dict holding an 8 is a request
+        # for a W8 cell, while a dict that only says 16 asks for no quantized layer at all and leaves
+        # the cell to the backend, which is how `weight_bits={'fc': 16}` has always resolved.
+        return (8 if 8 in weight_bits.values() else None), dict(weight_bits)
     return _check_width('weight_bits', weight_bits), None
 
 
@@ -307,6 +312,12 @@ def _resolve_spec(
     group_size = _resolve_group_size(cell, qscheme, group_size)
     symmetric = _resolve_symmetry(cell, symmetric)
     if layer_bits and not cell.per_layer:
+        # A backend that honors per-layer widths in ANOTHER precision is the common near-miss: name that
+        # precision and the argument that reaches it, rather than sending the caller to another backend.
+        sibling = next((c for c in _CELLS if c.backend == backend and c.per_layer), None)
+        if sibling is not None:
+            raise ValueError(f"backend='{backend}' cannot honor a per-layer `weight_bits` dict at "
+                             f"{cell.label}, only at {sibling.label}: add act_bits={sibling.act_bits}.")
         raise ValueError(f"backend='{backend}' quantizes the whole model at once: it cannot honor a "
                          f"per-layer `weight_bits` dict. The backend(s) that can: "
                          f"{_backends_where(lambda c: c.per_layer)}.")

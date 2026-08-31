@@ -14,6 +14,7 @@ from torch.ao.quantization.observer import MinMaxObserver, MovingAverageMinMaxOb
 from torch.ao.quantization.fake_quantize import FakeQuantize
 from torch.quantization import quantize_dynamic
 from torch.ao.quantization.qconfig import default_dynamic_qconfig
+from torch.ao.quantization.quantization_mappings import get_default_static_quant_module_mappings
 from dataclasses import replace
 from typing import Any
 import warnings
@@ -45,6 +46,39 @@ if _HAS_TORCHAO:
     _TORCHAO_CONFIGS['int8_dynamic'] = Int8DynamicActivationInt8WeightConfig
 if _HAS_INT4:
     _TORCHAO_CONFIGS['int4_weight_only'] = Int4WeightOnlyConfig
+
+# Per-layer widths need two things torchao keeps in `quant_api`: the configuration class that maps a
+# layer name to a config (or to `None`, meaning "leave this one alone"), and the predicate `quantize_`
+# itself uses to decide what counts as a Linear. Borrowing that predicate rather than writing
+# `isinstance(m, nn.Linear)` is what keeps the two paths identical: torchao SKIPS
+# `NonDynamicallyQuantizableLinear` (`MultiheadAttention.out_proj`), so a hand-rolled isinstance would
+# quantize layers the uniform path leaves in floating point.
+_FQN_CONFIG = None          # torchao's {layer name: config} configuration class
+_torchao_is_linear = None   # torchao's own "is this a Linear I rewrite?" predicate
+_HAS_FQN_CONFIG = False
+if _HAS_TORCHAO:
+    try:
+        from torchao.quantization.quant_api import _is_linear as _torchao_is_linear
+        try:
+            from torchao.quantization.quant_api import FqnToConfig as _FQN_CONFIG
+        except ImportError:  # older torchao shipped the same class under its module-only name
+            from torchao.quantization.quant_api import ModuleFqnToConfig as _FQN_CONFIG
+        _HAS_FQN_CONFIG = True
+    except ImportError:
+        pass
+
+_FQN_MISSING = ("A per-layer `weight_bits` dict on backend='torchao' needs a torchao that exposes "
+                "`FqnToConfig` (or its older name `ModuleFqnToConfig`). Upgrade torchao, or pass a "
+                "single `weight_bits` int.")
+
+
+def _is_quantized_weight(module: nn.Module) -> bool:
+    "Whether torchao replaced this module's weight with one of its own tensor subclasses"
+    # The provenance is the CLASS of the weight: torchao swaps `nn.Parameter` for an
+    # `AffineQuantizedTensor` (or another of its subclasses), all of which live under `torchao.`.
+    # Probing a named attribute instead (`weight.layout_type`) silently reports zero once torchao
+    # renames it, which is exactly what it used to do here.
+    return type(getattr(module, 'weight', None)).__module__.split('.')[0] == 'torchao'
 
 # %% ../../nbs/quantize/quantizer.ipynb #9aa89c26
 # The pt2e (PyTorch 2 Export) flow lives in torch core — `torch.ao.quantization.quantize_pt2e`
@@ -211,6 +245,24 @@ import contextlib
 
 _GRAMMAR_ARGS = ('weight_bits', 'act_bits', 'qscheme', 'group_size', 'symmetric')  # the precision arguments
 _CONV_TYPES = (nn.Conv1d, nn.Conv2d, nn.Conv3d)
+# The modules a per-layer width can actually be HONORED on with the legacy FX flow — which is not the
+# same question as "what can PyTorch quantize?". It is the module types that flow's default mapping
+# rewrites, so it is read from torch rather than listed by hand: measured on torch 2.9.1 / x86, naming
+# any of them 16 does leave that module in floating point, and the list is wider than the convolutions
+# and Linear (LayerNorm, the instance norms, PReLU and a standalone BatchNorm are in it too).
+# `nn.Embedding`/`nn.EmbeddingBag` are dropped: they ARE in the mapping, but quantizing them needs a
+# float_qparams observer this flow never sets, so they stay float and a width on them is ignored.
+# `nn.LSTM`/`GRU`/`RNN` are not in the mapping at all — they are the dynamic flow's, and a per-layer
+# dict is refused there (`method='dynamic'` reads no per-module configuration).
+_NO_DEFAULT_OBSERVER = (nn.Embedding, nn.EmbeddingBag)
+_LEGACY_QUANT_TYPES = tuple(t for t in get_default_static_quant_module_mappings()
+                            if isinstance(t, type) and issubclass(t, nn.Module)
+                            and not issubclass(t, _NO_DEFAULT_OBSERVER))
+
+
+def _preview(names, limit: int = 6) -> str:
+    "The first few of a list of layer names, so an error stays readable on a big model"
+    return ', '.join(names[:limit]) + (', ...' if len(names) > limit else '')
 
 class Quantizer:
     def __init__(self, 
@@ -240,12 +292,20 @@ class Quantizer:
                                   use_per_tensor=use_per_tensor)
         self.method = self.spec.method  # on torchao, naming a precision names the recipe that applies it
 
+        # `quantize_dynamic` rewrites every eligible layer off a type list and reads no per-module
+        # configuration, so a dict handed to it is accepted, ignored, and then recorded as provenance.
+        if self.spec.layer_bits and self.method == 'dynamic':
+            raise ValueError(
+                "method='dynamic' quantizes every eligible layer at once: it cannot honor a per-layer "
+                "`weight_bits` dict. The methods that can: 'static', 'qat'.")
+
         if backend == 'torchao':
             if not _HAS_TORCHAO:
                 raise ImportError("torchao backend requires torchao. Install with: pip install torchao")
             if self.method not in _TORCHAO_CONFIGS:
                 raise ValueError(f"torchao method '{self.method}' is not available in this environment "
                                  f"(its kernels are missing). Available: {list(_TORCHAO_CONFIGS)}")
+            if self.spec.layer_bits and not _HAS_FQN_CONFIG: raise ImportError(_FQN_MISSING)
             return
 
         if backend == 'pt2e':
@@ -276,6 +336,43 @@ class Quantizer:
         "Whether the caller named any part of the precision grammar"
         return self.use_per_tensor or any(getattr(self, a) is not None for a in _GRAMMAR_ARGS)
 
+    def _covering_names(self, name: str) -> list[str]:
+        "The dict entries that can apply to `name`: itself, then the modules containing it"
+        # The legacy FX flow resolves a module-name qconfig by walking parents, so naming a container
+        # applies to every layer under it. torchao matches a name exactly, and never a parent.
+        parts = name.split('.')
+        if self.backend == 'torchao': return [name]
+        return ['.'.join(parts[:i]) for i in range(len(parts), 0, -1)]
+
+    def _layer_width(self, name: str) -> int:
+        "Width `name` ends at: 16 when the dict names it or a module containing it, else the uniform width"
+        # Deliberately not "the most specific entry wins": only a 16 is written into the mapping (as a
+        # `set_module_name(..., None)`), so an inner 8 cannot undo an outer 16 — `_check_model` refuses
+        # that contradiction rather than letting this report a width the artifact will not have.
+        bits = self.spec.layer_bits
+        if not bits: return self.spec.weight_bits
+        return 16 if any(bits.get(n) == 16 for n in self._covering_names(name)) else self.spec.weight_bits
+
+    def _quantizable_names(self, model: nn.Module) -> list[str]:
+        "Names of the layers this backend rewrites — the only ones a per-layer width can be honored on"
+        if self.backend == 'torchao':
+            # torchao is asked for its OWN predicate, so that a per-layer request selects exactly the
+            # layers its uniform path would; notably it skips `MultiheadAttention.out_proj`, an
+            # `nn.Linear` subclass it never rewrites.
+            if _torchao_is_linear is None:  # a torchao that does not expose its filter: fall back
+                return [n for n, m in model.named_modules() if isinstance(m, nn.Linear)]
+            return [n for n, m in model.named_modules() if _torchao_is_linear(m, n)]
+        return [n for n, m in model.named_modules() if isinstance(m, _LEGACY_QUANT_TYPES)]
+
+    def _nameable_names(self, quantizable: list[str]) -> set[str]:
+        "Names a per-layer width may carry: a layer this backend rewrites, or a module holding some"
+        names = set(quantizable)
+        if self.backend == 'torchao': return names
+        for n in quantizable:
+            parts = n.split('.')
+            names.update('.'.join(parts[:i]) for i in range(1, len(parts)))
+        return names
+
     def _check_model(self, model: nn.Module) -> None:
         "Refuse a model the resolved precision cannot be applied to, before it is touched"
         if not (self.spec.layer_bits or self.backend == 'torchao'): return
@@ -284,21 +381,56 @@ class Quantizer:
         if missing:
             raise ValueError(f"`weight_bits` names layers this model does not have: {missing}. "
                              "Use the names `model.named_modules()` reports.")
-        if self.backend != 'torchao': return
-        # torchao rewrites Linear layers only. Quantizing a model it cannot touch, or quantizing per
-        # group around convolutions it will skip, is the silent half-quantization this grammar refuses.
-        convs = [n for n, m in named.items() if isinstance(m, _CONV_TYPES)]
-        if not any(isinstance(m, nn.Linear) for m in named.values()):
+        quantizable = self._quantizable_names(model)
+        # The backend-shape refusals come first: on a model torchao cannot touch at all, "use another
+        # backend" is the answer, not a remark about which layer names the dict may carry.
+        if self.backend == 'torchao':
+            # torchao rewrites Linear layers only. Quantizing a model it cannot touch, or quantizing per
+            # group around convolutions it will skip, is the silent half-quantization this grammar refuses.
+            convs = [n for n, m in named.items() if isinstance(m, _CONV_TYPES)]
+            if not quantizable:
+                skipped = [n for n, m in named.items() if isinstance(m, nn.Linear)]
+                why = (f"the only one(s) it has are Linear layers torchao skips ({_preview(skipped)})"
+                       if skipped else f"this model has none ({len(convs)} convolution(s))")
+                raise ValueError(
+                    f"backend='torchao' rewrites Linear layers only, and {why}: quantization would "
+                    "leave every layer in floating point. Use backend='x86' (or 'pt2e') for a "
+                    "convolutional model.")
+            if self.spec.qscheme == 'per_group' and convs:
+                raise ValueError(
+                    f"per-group quantization rewrites Linear layers only, and this model has "
+                    f"{len(convs)} convolution(s) ({_preview(convs, 3)}) that would silently stay in "
+                    "floating point. Quantize a convolutional model per channel (qscheme='per_channel').")
+        if not self.spec.layer_bits: return
+        # A width only means something on a layer the backend rewrites, or on a module holding some.
+        # Named anywhere else it is dropped on the floor; asked as an 8 under a 16 it loses to the 16;
+        # and if it leaves EVERY rewritten layer at 16 it produces a model that was never quantized.
+        # All three are the silent half-quantization this grammar refuses.
+        nameable = self._nameable_names(quantizable)
+        elsewhere = [n for n in self.spec.layer_bits if n not in nameable]
+        if elsewhere:
+            if self.backend == 'torchao':
+                rewrites = ("Linear layers only, and never `MultiheadAttention.out_proj` (torchao's own "
+                            "filter skips it)")
+            else:
+                rewrites = ("the module types its default qconfig mapping rewrites, and the modules "
+                            "holding them")
             raise ValueError(
-                f"backend='torchao' rewrites Linear layers only, and this model has none "
-                f"({len(convs)} convolution(s)): quantization would leave every layer in floating "
-                "point. Use backend='x86' (or 'pt2e') for a convolutional model.")
-        if self.spec.qscheme == 'per_group' and convs:
-            shown = ', '.join(convs[:3]) + (', ...' if len(convs) > 3 else '')
+                f"`weight_bits` names layers backend='{self.backend}' does not quantize: {elsewhere}. "
+                f"It rewrites {rewrites}, so a width on any other module would be ignored. The "
+                f"{len(quantizable)} layer(s) it can be given: {_preview(quantizable)}.")
+        shadowed = [n for n, b in self.spec.layer_bits.items() if b == 8 and self._layer_width(n) == 16]
+        if shadowed:
             raise ValueError(
-                f"per-group quantization rewrites Linear layers only, and this model has "
-                f"{len(convs)} convolution(s) ({shown}) that would silently stay in floating point. "
-                "Quantize a convolutional model per channel (qscheme='per_channel').")
+                f"`weight_bits` asks for 8 on {shadowed}, inside a module it also leaves at 16: the FX "
+                "flow honors the outer 16, so the 8 would be ignored. Drop the outer 16 and name the "
+                "layers to keep in floating point one by one.")
+        if quantizable and all(self._layer_width(n) == 16 for n in quantizable):
+            raise ValueError(
+                f"`weight_bits` leaves all {len(quantizable)} layer(s) backend='{self.backend}' "
+                "quantizes in floating point: `quantize` would hand back an unquantized model "
+                "carrying a quantized model's provenance. Name at least one layer 8, or do not "
+                "quantize this model.")
 
     def _tag(self, quantized: nn.Module, source: nn.Module) -> nn.Module:
         "Record on the quantized model which precision cell produced it"
@@ -424,20 +556,41 @@ class Quantizer:
         config = _TORCHAO_CONFIGS[self.method]
         return config(group_size=self.spec.group_size) if self.spec.qscheme == 'per_group' else config()
 
+    def _torchao_fqn_config(self, model: nn.Module):
+        "One torchao entry per Linear layer: the shared config where the width is 8, `None` where it is 16"
+        # EXPLICIT expansion, one entry per layer. torchao's `_default` key is deprecated, and a dict
+        # holding only the exceptions would leave "and the rest?" to torchao. The configuration object is
+        # built ONCE and shared: the transform reads it and never mutates it, so every layer the dict
+        # quantizes gets bit-for-bit what the uniform path would have given it.
+        config = self._torchao_config()
+        entries = {n: None if self._layer_width(n) == 16 else config
+                   for n in self._quantizable_names(model)}
+        return _FQN_CONFIG(entries)  # positional: older torchao names this field `module_fqn_to_config`
+
     def _quantize_torchao(self, model):
         "Quantize a model using torchao backend"
         model = copy.deepcopy(model).eval()
-        config = self._torchao_config()
+        per_layer = bool(self.spec.layer_bits)  # `__init__` refused this without the torchao it needs
+        config = self._torchao_fqn_config(model) if per_layer else self._torchao_config()
         if self.verbose:
-            print(f"torchao: applying {self.method} ({type(config).__name__})")
+            if per_layer:
+                names = self._quantizable_names(model)
+                floats = [n for n in names if self._layer_width(n) == 16]
+                print(f"torchao: applying {self.method} to {len(names) - len(floats)}/{len(names)} Linear "
+                      f"layers ({len(floats)} left in floating point: {', '.join(floats) or 'none'})")
+            else:
+                print(f"torchao: applying {self.method} ({type(config).__name__})")
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             try:
-                quantize_(model, config)
+                # `filter_fn` defaults to torchao's own `_is_linear`, and `quantize_` refuses a per-layer
+                # configuration together with ANY filter: there, the dict is the layer selection.
+                if per_layer: quantize_(model, config, filter_fn=None)
+                else: quantize_(model, config)
             except ImportError as e:
                 raise ImportError(f"torchao method '{self.method}' requires additional dependencies: {e}")
         if self.verbose:
-            n = sum(1 for m in model.modules() if hasattr(getattr(m, 'weight', None), 'layout_type'))
+            n = sum(1 for m in model.modules() if _is_quantized_weight(m))
             print(f"torchao: quantized {n} layers")
         return model
 
