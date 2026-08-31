@@ -73,6 +73,7 @@ website:
         - section: Quantize
           contents:
           - tutorials/quantize/quantize_callback.ipynb
+          - tutorials/quantize/deployable_export.ipynb
         - section: Misc
           contents:
           - tutorials/misc/bn_folding.ipynb
@@ -88,6 +89,7 @@ website:
         - core/granularity.ipynb
         - core/criteria.ipynb
         - core/schedules.ipynb
+        - core/precision.ipynb
       - section: Sparse
         contents:
         - sparse/sparsifier.ipynb
