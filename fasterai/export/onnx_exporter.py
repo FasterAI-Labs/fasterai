@@ -192,6 +192,10 @@ def verify_onnx(
 # %% ../../nbs/export/onnx_exporter.ipynb #88b15f63
 _INT8 = 3  # onnx.TensorProto.INT8
 
+# In a QDQ graph a weight does not reach its operator directly: it arrives through the node(s) that
+# de-quantize it. These are the operators worth walking back through to find the weight tensor itself.
+_WEIGHT_SOURCE_OPS = ("DequantizeLinear", "QuantizeLinear", "Cast")
+
 
 def _set_eval(model: nn.Module) -> None:
     "Put `model` in eval mode, tolerating exported graph modules (they reject `.eval()`)"
@@ -247,13 +251,90 @@ def _pt2e_translation_table() -> dict:
         if overload is not None: table[overload] = translation
     return table
 
+
+def _graph_constants(graph) -> dict:
+    "Every tensor an ONNX graph carries as a constant, by name, as the TensorProto that holds it"
+    constants = {init.name: init for init in graph.initializer}
+    for node in graph.node:  # a producer may emit a constant as a Constant node rather than an initializer
+        if node.op_type == "Constant":
+            for attr in node.attribute:
+                if attr.name == "value": constants[node.output[0]] = attr.t
+    return constants
+
+
+def _weight_dims(name: str,
+                 dims_by_name: dict[str, tuple[int, ...]],
+                 producers: dict) -> tuple[int, ...] | None:
+    "Shape of the weight tensor reaching `name`, walked back through the nodes that de-quantize it"
+    seen = set()
+    while name not in dims_by_name:
+        if name in seen: return None  # a cycle: give up rather than spin
+        seen.add(name)
+        node = producers.get(name)
+        if node is None or node.op_type not in _WEIGHT_SOURCE_OPS or not node.input: return None
+        name = node.input[0]
+    return dims_by_name[name]
+
+
+def _set_conv_kernel_shape(graph) -> int:
+    "Write the optional `kernel_shape` attribute on the Conv nodes that lack it, and count them"
+    # ONNX makes `kernel_shape` optional because a consumer can read the spatial dims off the weight
+    # tensor, and the dynamo exporter leaves it out. A QDQ graph hands the weight over as the *output
+    # of a DequantizeLinear* rather than as an initializer, and a parser that only reads shapes from
+    # initializers (TensorRT's ONNX parser among them) then has nothing to read and rejects the graph.
+    # Writing the attribute is spec-legal and changes no weight, no scale and no topology.
+    from onnx import helper
+
+    # Shapes come straight off the TensorProto, so this stays correct — and cheap — on a model whose
+    # weights live in an external data file and were therefore never loaded.
+    dims_by_name = {name: tuple(t.dims) for name, t in _graph_constants(graph).items()}
+    producers = {out: node for node in graph.node for out in node.output}
+    written = 0
+    for node in graph.node:
+        # `Conv` only: `ConvTranspose`, `MaxPool` and friends are left exactly as the exporter wrote them.
+        if node.op_type != "Conv": continue
+        if any(attr.name == "kernel_shape" for attr in node.attribute): continue
+        if len(node.input) < 2: continue
+        weight = _weight_dims(node.input[1], dims_by_name, producers)
+        if weight is None or len(weight) < 3: continue  # unknown weight shape: leave the node alone
+        node.attribute.append(helper.make_attribute("kernel_shape", list(weight[2:])))
+        written += 1
+    return written
+
+
+def _discard(output_path: Path, proto) -> None:
+    "Delete a produced graph and the external-data file it references, so a refusal keeps nothing"
+    for location in {entry.value for init in proto.graph.initializer
+                     for entry in init.external_data if entry.key == "location"}:
+        sidecar = (output_path.parent / location).resolve()
+        # A `location` in a file this export just wrote is one of ours; never follow one out of the
+        # directory we wrote to anyway.
+        if sidecar.is_relative_to(output_path.parent.resolve()): sidecar.unlink(missing_ok=True)
+    output_path.unlink(missing_ok=True)
+
+
+def _check_produced_opset(proto, requested: int, output_path: Path) -> None:
+    "Refuse a produced graph that does not declare the opset that was asked for, keeping none of it"
+    produced = next((o.version for o in proto.opset_import if o.domain in ("", "ai.onnx")), None)
+    if produced == requested: return
+    _discard(output_path, proto)
+    if produced is None:
+        raise ValueError(
+            f"export_qdq produced a graph that declares no opset for the default ONNX domain, so "
+            f"there is nothing to check the requested opset {requested} against. No file was kept.")
+    raise ValueError(
+        f"export_qdq was asked for opset {requested}, and the graph it produced declares opset "
+        f"{produced}: the ONNX version converter could not rewrite this graph to opset {requested}, "
+        f"and torch.onnx kept the opset the exporter emitted. Pass opset_version={produced} to accept "
+        f"that graph, or export a model whose operators the converter can convert. No file was kept.")
+
 # %% ../../nbs/export/onnx_exporter.ipynb #467ceb9a
 def export_qdq(
     model: nn.Module,                      # Quantized model, typically from `Quantizer(backend='pt2e')`
     sample: torch.Tensor,                  # Example input (with batch dim); use the calibration batch size
     output_path: str | Path,               # Output .onnx file path
     *,
-    opset_version: int = 18,               # ONNX opset version (18+ for per-channel QuantizeLinear)
+    opset_version: int = 18,               # ONNX opset version (18+ for per-channel QuantizeLinear); raises if the produced graph does not declare it
     dynamic_batch: bool = False,           # Ask for a dynamic batch dimension (experimental)
     input_names: list[str] | None = None,  # Names for input tensors
     output_names: list[str] | None = None, # Names for output tensors
@@ -288,13 +369,22 @@ def export_qdq(
     )
     program.save(str(output_path))
 
+    # Everything below reads the FILE that was produced, not the request that produced it.
+    # `load_external_data=False` keeps that cheap: opsets, attributes and shapes live in the proto.
+    proto = onnx.load(str(output_path), load_external_data=False)
+    # torch.onnx exports at the exporter's own opset and converts afterwards; when the ONNX version
+    # converter cannot rewrite an operator it logs the failure and hands back the unconverted graph,
+    # so `opset_version` is dropped rather than applied and only a log line says so.
+    _check_produced_opset(proto, opset_version, output_path)
+
     if dynamic_batch:  # report what was produced, not what was asked for
-        batch_dim = onnx.load(str(output_path)).graph.input[0].type.tensor_type.shape.dim[0]
-        if not batch_dim.dim_param:
+        if not proto.graph.input[0].type.tensor_type.shape.dim[0].dim_param:
             warnings.warn("The exported graph kept a STATIC batch dimension: a module captured by "
                           "torch.export is specialised to the batch size it was captured with. "
                           "Re-capture the source model with a dynamic batch before quantizing.",
                           UserWarning, stacklevel=2)
+
+    if _set_conv_kernel_shape(proto.graph): onnx.save(proto, str(output_path))
     return output_path
 
 # %% ../../nbs/export/onnx_exporter.ipynb #f7838382
@@ -318,18 +408,14 @@ def qdq_stats(
     from onnx import numpy_helper
 
     graph = onnx.load(str(onnx_path)).graph
-    constants = {init.name: numpy_helper.to_array(init) for init in graph.initializer}
-    for node in graph.node:  # a producer may emit scales/zero-points as Constant nodes
-        if node.op_type == "Constant":
-            for attr in node.attribute:
-                if attr.name == "value": constants[node.output[0]] = numpy_helper.to_array(attr.t)
+    constants = _graph_constants(graph)  # scales and zero-points may be initializers OR Constant nodes
 
     def _constant(name, node, role):
         "Value of a graph constant, or a clear error rather than a silently wrong count"
         if name not in constants:
             raise ValueError(f"Cannot read the {role} of node '{node.name or node.op_type}': "
                              f"'{name}' is not a graph constant.")
-        return constants[name]
+        return numpy_helper.to_array(constants[name])  # only the few tensors actually looked at
 
     n_quantize = n_dequantize = n_per_channel = n_nonzero_zero_point = 0
     for node in graph.node:
