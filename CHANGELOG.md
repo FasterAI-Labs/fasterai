@@ -8,6 +8,7 @@
 - `Quantizer(backend='torchao', weight_bits={layer: 8|16}, act_bits=16)` applies a per-layer width over the `nn.Linear` layers torchao rewrites, so part of a Linear-heavy model can be held in floating point. Naming every layer `8` produces the same artifact, byte for byte, as the uniform `method='int8_weight_only'` recipe
 
 ### Breaking Changes
+- `export_qdq(opset_version=...)` now raises `ValueError` when the graph it produced does not declare the opset that was asked for, instead of returning a file at a different opset. `torch.onnx` exports at the exporter's own opset and down-converts afterwards; when the ONNX version converter cannot rewrite an operator it keeps the original opset and says so only in a log line. The error names both opsets, and nothing is kept on disk — not the graph, and not the external-data file it may reference. A graph that declares no opset at all for the default ONNX domain is refused with its own message rather than that one. The default (`18`) is unaffected
 - A per-layer `weight_bits` dict naming a layer the backend does not quantize now raises `ValueError` instead of being silently ignored. On the legacy backends the names it accepts are the module types their default qconfig mapping rewrites (read from torch, so it tracks the installed version) plus any module containing one; `nn.Embedding`, `nn.EmbeddingBag`, `nn.LSTM`, `nn.GRU` and `nn.RNN` are not among them — the default flow leaves them in floating point. On `backend='torchao'` the names it accepts are the `nn.Linear` layers torchao itself selects, which excludes `MultiheadAttention.out_proj`
 - A per-layer `weight_bits` dict that would leave *every* layer the backend rewrites in floating point now raises `ValueError`: it used to hand back an unquantized model carrying a quantized model's provenance
 - A per-layer `weight_bits` dict asking for `8` inside a module the same dict leaves at `16` now raises `ValueError`: the FX flow honors the outer `16`, so the `8` could never be applied
@@ -16,6 +17,7 @@
 
 ### Bug Fixes
 - `Quantizer(backend='torchao', verbose=True)` reported "quantized 0 layers" on every model: it probed a `weight.layout_type` attribute torchao no longer defines. It now reads the class of the weight
+- `export_qdq` now writes the optional `kernel_shape` attribute on every `Conv` node, resolving each node's weight back through the `DequantizeLinear` that feeds it. The dynamo exporter omits the attribute, and a QDQ graph hands the weight over as a tensor rather than as an initializer, so an ONNX parser that reads spatial dims off initializers only (TensorRT's among them) had nothing to read and rejected the graph. The edit is spec-legal and semantics-preserving: strip the attributes back off and ONNX Runtime returns byte-identical logits, over an unchanged `qdq_stats`. Only `Conv` is patched; `ConvTranspose` and the pooling operators are untouched
 
 ## 0.3.3
 
