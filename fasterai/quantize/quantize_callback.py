@@ -91,10 +91,15 @@ class QuantizeCallback(Callback):
         if self.verbose: print("pt2e: capturing the model with torch.export")
         # No fallback: `_prepare_pt2e` raises when the capture fails, naming the operation it failed on.
         # Training the unprepared model instead would report a QAT run that never happened.
-        prepared = _prepare_pt2e(self.learn.model, example_input, self.quantizer.spec)
+        # `verbose` goes through: the placement pass reports what it cleared from inside `_prepare_pt2e`,
+        # and a QAT run is exactly where a caller cannot see that any other way.
+        prepared = _prepare_pt2e(self.learn.model, example_input, self.quantizer.spec,
+                                 verbose=self.verbose)
         self._swap_model(_bind_exported_modes(prepared))
         if self.verbose:
-            print(f"pt2e: prepared for QAT ({self.quantizer.spec.label}, {self.quantizer.spec.qscheme})")
+            spec = self.quantizer.spec
+            print(f"pt2e: prepared for QAT ({spec.label}, {spec.qscheme}, "
+                  f"qdq_placement={getattr(spec, 'qdq_placement', None)})")
 
     def _start_fx(self, example_input: torch.Tensor) -> None:
         "Insert the fake-quantize modules with `prepare_qat_fx`, on the CPU where the FX flow runs"

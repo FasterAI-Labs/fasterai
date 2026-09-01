@@ -262,6 +262,44 @@ def _graph_constants(graph) -> dict:
     return constants
 
 
+def _producers(graph) -> dict:
+    "The node that writes each value of an ONNX graph, by value name"
+    return {output: node for node in graph.node for output in node.output}
+
+
+# The ONNX counterpart of the fx-level `_CONV_EPILOGUE_TARGETS` in `fasterai.quantize.quantizer`:
+# what a convolution's result may still pass through in the PRODUCED FILE and still be that
+# convolution's result. It is the shorter list of the two on purpose — the batch-norm of the fx list
+# never survives to a QDQ graph (both pt2e flows fold it into the convolution before the export), so
+# only the activation is left to walk through here.
+_CONV_EPILOGUE_OPS = ("Relu",)
+
+
+def _direct_conv_add_edges(graph) -> int:
+    "How many `Add` inputs this graph takes from a `Conv`, with no Q/DQ pair on the way"
+    # This is what `qdq_placement='skip_conv_add'` leaves in the file, read back off the file: a
+    # convolution's result reaching an addition without being quantized on the way. On a graph
+    # quantized the ordinary way the count is 0 — every such edge carries a QuantizeLinear /
+    # DequantizeLinear pair.
+    producers = _producers(graph)
+    consumers: dict[str, int] = {}
+    for node in graph.node:
+        for name in node.input: consumers[name] = consumers.get(name, 0) + 1
+
+    def source(name: str):
+        "The node whose result reaches `name`, walked back through the convolution's own epilogue"
+        # Single-consumer only, which is the same rule the annotation-time matcher applies: an
+        # activation read somewhere else as well is not part of one convolution's private partition.
+        node = producers.get(name)
+        while (node is not None and node.op_type in _CONV_EPILOGUE_OPS and node.input
+               and consumers.get(node.output[0], 0) == 1):
+            node = producers.get(node.input[0])
+        return node
+
+    return sum(1 for node in graph.node if node.op_type == "Add" for name in node.input
+               if getattr(source(name), "op_type", None) == "Conv")
+
+
 def _weight_dims(name: str,
                  dims_by_name: dict[str, tuple[int, ...]],
                  producers: dict) -> tuple[int, ...] | None:
@@ -288,7 +326,7 @@ def _set_conv_kernel_shape(graph) -> int:
     # Shapes come straight off the TensorProto, so this stays correct — and cheap — on a model whose
     # weights live in an external data file and were therefore never loaded.
     dims_by_name = {name: tuple(t.dims) for name, t in _graph_constants(graph).items()}
-    producers = {out: node for node in graph.node for out in node.output}
+    producers = _producers(graph)
     written = 0
     for node in graph.node:
         # `Conv` only: `ConvTranspose`, `MaxPool` and friends are left exactly as the exporter wrote them.
@@ -334,6 +372,24 @@ def _check_produced_opset(proto, requested: int, output_path: Path) -> None:
         f"{produced}: the ONNX version converter could not rewrite this graph to opset {requested}, "
         f"and torch.onnx kept the opset the exporter emitted. Pass opset_version={produced} to accept "
         f"that graph, or export a model whose operators the converter can convert. No file was kept.")
+
+
+def _check_produced_placement(proto, model: nn.Module, output_path: Path) -> None:
+    "Refuse a produced graph that contradicts the Q/DQ placement the model's spec records"
+    # Same shape and same rationale as `_check_produced_opset`: what is checked is the FILE, not the
+    # request that produced it. `getattr` carries both of the ways there is nothing to read: a model
+    # fasterai never quantized has no spec at all (`quant_spec` returns None), and a spec pickled
+    # before this field existed unpickles with the SLOT UNSET — a frozen slots dataclass then raises
+    # AttributeError instead of handing back the default.
+    if getattr(quant_spec(model), 'qdq_placement', None) != 'skip_conv_add': return
+    if _direct_conv_add_edges(proto.graph): return
+    _discard(output_path, proto)
+    raise ValueError(
+        "export_qdq produced a graph that contradicts the model it exported: that model records "
+        "qdq_placement='skip_conv_add', which leaves the residual branch's convolution reaching its "
+        "addition unquantized, and in the produced file every `Add` reads its inputs through a Q/DQ "
+        "pair — not one of them reads a `Conv`, directly or through that convolution's own "
+        "activation. No file was kept.")
 
 
 def _drop_unused_constant(graph, name: str) -> bool:
@@ -545,6 +601,7 @@ def export_qdq(
     produced = _declared_opset(proto)  # read BEFORE the rewrite, which is what makes it declare another
     lowered = _lower_produced_opset(proto, opset_version, output_path)
     _check_produced_opset(proto, opset_version, output_path)
+    _check_produced_placement(proto, model, output_path)
 
     if dynamic_batch:  # report what was produced, not what was asked for
         if not proto.graph.input[0].type.tensor_type.shape.dim[0].dim_param:
@@ -563,11 +620,12 @@ def export_qdq(
 # %% ../../nbs/export/onnx_exporter.ipynb #f7838382
 @dataclass(slots=True)
 class QDQStats:
-    "Quantization nodes found in an ONNX graph"
-    n_quantize: int            # number of QuantizeLinear nodes
-    n_dequantize: int          # number of DequantizeLinear nodes
-    n_per_channel: int         # nodes whose scale holds one value per channel
-    n_nonzero_zero_point: int  # nodes whose zero-point is not all zeros
+    "Quantization nodes found in an ONNX graph, and the operator edges that carry no pair"
+    n_quantize: int              # number of QuantizeLinear nodes
+    n_dequantize: int            # number of DequantizeLinear nodes
+    n_per_channel: int           # nodes whose scale holds one value per channel
+    n_nonzero_zero_point: int    # nodes whose zero-point is not all zeros
+    n_unquantized_conv_add: int  # `Add` inputs read straight from a `Conv` (what `qdq_placement='skip_conv_add'` leaves)
 
     def as_dict(self) -> dict[str, int]: return asdict(self)
 
@@ -601,7 +659,8 @@ def qdq_stats(
         # zero_point is an optional third input: when omitted it is implicitly zero
         zero_point = node.input[2] if len(node.input) > 2 else ""
         if zero_point and np.any(_constant(zero_point, node, "zero_point") != 0): n_nonzero_zero_point += 1
-    return QDQStats(n_quantize, n_dequantize, n_per_channel, n_nonzero_zero_point)
+    return QDQStats(n_quantize, n_dequantize, n_per_channel, n_nonzero_zero_point,
+                    _direct_conv_add_edges(graph))
 
 # %% ../../nbs/export/onnx_exporter.ipynb #1eaa6ad7
 def verify_qdq(

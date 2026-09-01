@@ -7,11 +7,13 @@ import warnings
 from dataclasses import asdict, dataclass
 
 # %% auto #0
-__all__ = ['QSCHEMES', 'WIDTHS', 'PRECISION_SUPPORT', 'SPEC_ATTR', 'PrecisionCell', 'precision_table', 'QuantSpec', 'quant_spec']
+__all__ = ['QSCHEMES', 'WIDTHS', 'QDQ_PLACEMENTS', 'PRECISION_SUPPORT', 'SPEC_ATTR', 'PrecisionCell', 'precision_table',
+           'QuantSpec', 'quant_spec']
 
 # %% ../../nbs/core/precision.ipynb #precision-cell
 QSCHEMES = ('per_tensor', 'per_channel', 'per_group')  # the weight axes this grammar names
 WIDTHS = (4, 8, 16)                                    # the bit widths it names; 16 = left in floating point
+QDQ_PLACEMENTS = ('per_op', 'skip_conv_add')  # where a flow may put its Q/DQ pairs; the first one quantizes every operator it annotates
 
 
 def _label(weight_bits: int, act_bits: int) -> str:
@@ -31,6 +33,7 @@ class PrecisionCell:
     exports: bool              # `export_qdq` can write it as a QDQ ONNX graph
     note: str                  # what it does, and why it does not export when it does not
     default_group_size: int | None = None  # group size the backend picks when the axis is 'per_group'
+    qdq_placements: tuple[str, ...] = ()  # Q/DQ placements it can honor, first one its default; empty = the cell has no such axis
 
     @property
     def label(self) -> str:
@@ -47,6 +50,11 @@ class PrecisionCell:
         "Symmetry used when the caller does not name one"
         return self.symmetries[0]
 
+    @property
+    def default_qdq_placement(self) -> str | None:
+        "Q/DQ placement used when the caller does not name one, or None when the cell has no such axis"
+        return self.qdq_placements[0] if self.qdq_placements else None
+
     def as_dict(self) -> dict:
         "Plain-dict view, for logging or serialization"
         return asdict(self)
@@ -58,7 +66,8 @@ _AFFINE_FX = ("FX observers keep activations affine (unsigned, non-zero zero-poi
 _CELLS = (
     PrecisionCell('pt2e', 8, 8, ('per_channel', 'per_tensor'), (True, False), False, True,
                   "Symmetric INT8 weights and activations: every zero-point is 0, which is what `export_qdq` "
-                  "writes into a QDQ ONNX graph."),
+                  "writes into a QDQ ONNX graph. The one cell that also chooses where its Q/DQ pairs sit.",
+                  qdq_placements=('per_op', 'skip_conv_add')),
     PrecisionCell('x86', 8, 8, ('per_channel', 'per_tensor'), (False,), True, False, _AFFINE_FX),
     PrecisionCell('fbgemm', 8, 8, ('per_channel', 'per_tensor'), (False,), True, False, _AFFINE_FX),
     PrecisionCell('onednn', 8, 8, ('per_channel', 'per_tensor'), (False,), True, False, _AFFINE_FX),
@@ -89,10 +98,12 @@ def _backends_where(predicate) -> list[str]:
 
 def precision_table() -> str:
     "Markdown view of `PRECISION_SUPPORT` — the matrix is the code, this is only its rendering"
-    head = ("| Backend | Precision | Weight axis | Symmetric | Per-layer | `export_qdq` | Notes |\n"
-            "|---|---|---|---|---|---|---|\n")
+    head = ("| Backend | Precision | Weight axis | Symmetric | Per-layer | Q/DQ placement | "
+            "`export_qdq` | Notes |\n"
+            "|---|---|---|---|---|---|---|---|\n")
     rows = [f"| `{c.backend}` | {c.label} | {', '.join(c.qschemes)} | "
             f"{', '.join(str(s) for s in c.symmetries)} | {'yes' if c.per_layer else 'no'} | "
+            f"{', '.join(c.qdq_placements) or 'n/a'} | "
             f"{'yes' if c.exports else 'no'} | {c.note} |" for c in _CELLS]
     return head + "\n".join(rows)
 
@@ -111,6 +122,7 @@ class QuantSpec:
     symmetric: bool                     # True when every zero-point is 0
     group_size: int | None = None       # weights sharing one scale (qscheme='per_group')
     layer_bits: dict | None = None      # per-layer widths, when the caller asked for some
+    qdq_placement: str | None = None    # where the Q/DQ pairs sit; None on a backend with no such axis
 
     @property
     def label(self) -> str:
@@ -273,6 +285,29 @@ def _resolve_group_size(cell: PrecisionCell, qscheme: str, group_size) -> int | 
     return group_size
 
 
+def _resolve_qdq_placement(cell: PrecisionCell, qdq_placement) -> str | None:
+    "Pick where the Q/DQ pairs sit, refusing a placement the cell's flow cannot produce"
+    # Like `group_size`, this axis is left at None on a cell that has none, rather than recorded as a
+    # default no flow would read: `qdq_placement` describes the arithmetic, so it may only say
+    # something on the backend that can actually place the pairs.
+    if qdq_placement is None: return cell.default_qdq_placement
+    if not isinstance(qdq_placement, str):
+        raise _type_error('qdq_placement', f"one of {list(QDQ_PLACEMENTS)} (str)", qdq_placement)
+    if qdq_placement not in QDQ_PLACEMENTS:
+        raise ValueError(f"Unknown qdq_placement '{qdq_placement}'. The Q/DQ placements this grammar "
+                         f"names are {list(QDQ_PLACEMENTS)}.")
+    if qdq_placement not in cell.qdq_placements:
+        able = _backends_where(lambda c: qdq_placement in c.qdq_placements)
+        # The first arm is for the cell that names SOME placements but not this one. No cell is in
+        # that state today (pt2e names both), and it is kept so that adding one cannot silently ship
+        # the wrong explanation — the same reason `_resolve_qscheme` names the axes a cell does have.
+        why = (f"it places them {list(cell.qdq_placements)}" if cell.qdq_placements else
+               "its flow quantizes every operator it rewrites and names no placement at all")
+        raise ValueError(f"backend='{cell.backend}' {cell.label} cannot honor "
+                         f"qdq_placement='{qdq_placement}' — {why}. The backend(s) that can: {able}.")
+    return qdq_placement
+
+
 def _resolve_symmetry(cell: PrecisionCell, symmetric) -> bool:
     "Pick the symmetry, refusing the one the cell's observers cannot produce"
     if symmetric is None: return cell.default_symmetric
@@ -299,6 +334,7 @@ def _resolve_spec(
     qscheme: str | None = None,      # Weight axis; None = the backend's default
     group_size: int | None = None,   # Weights sharing one scale (qscheme='per_group')
     symmetric: bool | None = None,   # Force zero-point 0; None = the backend's default
+    qdq_placement: str | None = None,  # Where the Q/DQ pairs sit: 'per_op', 'skip_conv_add'; None = the backend's default
     use_per_tensor: bool = False,    # Legacy per-tensor flag, kept in sync with `qscheme`
 ) -> QuantSpec:
     "Resolve the precision grammar into the one `QuantSpec` a backend will apply, or say why it cannot"
@@ -311,6 +347,7 @@ def _resolve_spec(
     qscheme = _resolve_qscheme(cell, qscheme, group_size, use_per_tensor)
     group_size = _resolve_group_size(cell, qscheme, group_size)
     symmetric = _resolve_symmetry(cell, symmetric)
+    qdq_placement = _resolve_qdq_placement(cell, qdq_placement)
     if layer_bits and not cell.per_layer:
         # A backend that honors per-layer widths in ANOTHER precision is the common near-miss: name that
         # precision and the argument that reaches it, rather than sending the caller to another backend.
@@ -322,4 +359,5 @@ def _resolve_spec(
                          f"per-layer `weight_bits` dict. The backend(s) that can: "
                          f"{_backends_where(lambda c: c.per_layer)}.")
     return QuantSpec(backend=backend, method=method, weight_bits=weight_bits, act_bits=act_bits,
-                     qscheme=qscheme, symmetric=symmetric, group_size=group_size, layer_bits=layer_bits)
+                     qscheme=qscheme, symmetric=symmetric, group_size=group_size, layer_bits=layer_bits,
+                     qdq_placement=qdq_placement)
