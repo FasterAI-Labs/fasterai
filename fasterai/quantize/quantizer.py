@@ -86,7 +86,10 @@ def _is_quantized_weight(module: nn.Module) -> bool:
 # `xnnpack_quantizer` module, so this backend needs no third-party package.
 try:
     from torch.ao.quantization.quantize_pt2e import prepare_pt2e, prepare_qat_pt2e, convert_pt2e
-    from torch.ao.quantization.quantizer import QuantizationSpec
+    from torch.ao.quantization.quantizer import QuantizationSpec, SharedQuantizationSpec
+    # torch's own quantizer base class, which the placement wrapper below subclasses. It is imported
+    # under a private alias because `Quantizer` is the name of THIS module's class.
+    from torch.ao.quantization.quantizer import Quantizer as _TorchQuantizer
     from torch.ao.quantization.quantizer.xnnpack_quantizer import (XNNPACKQuantizer,
                                                                    get_symmetric_quantization_config)
     from torch.ao.quantization.quantizer.xnnpack_quantizer_utils import QuantizationConfig
@@ -97,6 +100,9 @@ try:
     _HAS_PT2E = True
 except ImportError:
     _HAS_PT2E = False
+    # The placement wrapper below is DEFINED on every torch build — this module has to import where
+    # there is no pt2e flow at all — and only ever BUILT where that flow exists.
+    _TorchQuantizer = object
 
 # %% ../../nbs/quantize/quantizer.ipynb #ff65b476
 import types
@@ -143,6 +149,146 @@ def _symmetric_pt2e_config(
                               weight=weight, bias=None, is_qat=is_qat)
 
 
+# --- where the Q/DQ pairs sit ---------------------------------------------------------------------
+# `qdq_placement` is an ANNOTATION-time axis: the pass below edits the graph torch has just annotated,
+# so the placement the caller asked for is the one the prepared model, the QAT training run and the
+# exported file all carry. Editing the ONNX graph afterwards instead would make the exported file and
+# the model the caller holds disagree by construction — and `verify_qdq` compares exactly those two.
+_ANNOTATION = 'quantization_annotation'  # torch's own key for the annotation it leaves on a node
+
+_ADD_TARGETS = (torch.ops.aten.add.Tensor, torch.ops.aten.add_.Tensor)
+_CONV_TARGETS = (torch.ops.aten.conv1d.default, torch.ops.aten.conv2d.default,
+                 torch.ops.aten.conv3d.default, torch.ops.aten.convolution.default)
+# What a convolution's result may still pass through and still BE the convolution's result. The three
+# spellings this covers are all real: PTQ fuses conv+bn before annotating, QAT does not (it annotates
+# BEFORE `_fuse_conv_bn_qat`, so the qspec sits on the batch-norm), and `_annotate_conv_relu` puts the
+# qspec on the ReLU. Its counterpart on the exported file is `_CONV_EPILOGUE_OPS` in
+# `fasterai.export.onnx_exporter`, which the placement post-condition walks back through: the two
+# lists have to agree, or an edge this pass clears is one that post-condition cannot find.
+_CONV_EPILOGUE_TARGETS = (torch.ops.aten.batch_norm.default, torch.ops.aten.relu.default,
+                          torch.ops.aten.relu_.default)
+_MAX_CONV_EPILOGUE = 2  # conv -> bn -> relu: two epilogue nodes, plus the convolution itself (the +1 below)
+
+
+def _node_annotation(node):
+    "The quantization annotation torch left on `node`, or None when it left none"
+    return node.meta.get(_ANNOTATION)
+
+
+def _shared_references(graph_module) -> set:
+    "Every edge or node a `SharedQuantizationSpec` points at — a qspec no pass may take away"
+    # Removing a qspec another tensor's spec is defined against would leave that one dangling, which
+    # is a broken graph rather than a different placement. Such a node is skipped, and counted as
+    # unmatched.
+    referenced = set()
+    for node in graph_module.graph.nodes:
+        annotation = _node_annotation(node)
+        if annotation is None: continue
+        for spec in (*annotation.input_qspec_map.values(), annotation.output_qspec):
+            if isinstance(spec, SharedQuantizationSpec): referenced.add(spec.edge_or_node)
+    return referenced
+
+
+def _conv_partition_root(addend):
+    "The convolution `addend` is the output of, walked back through bn/relu; None when there is none"
+    node = addend
+    for _ in range(_MAX_CONV_EPILOGUE + 1):
+        if node.op != 'call_function': return None
+        if node.target in _CONV_TARGETS: return node
+        if node.target not in _CONV_EPILOGUE_TARGETS: return None
+        producer = node.args[0] if node.args else None
+        # every node of the partition feeds only the next one: a result read somewhere else as well is
+        # shared, and its Q/DQ pair is not this edge's to remove
+        if not isinstance(producer, torch.fx.Node) or len(producer.users) != 1: return None
+        node = producer
+    return None
+
+
+def _is_conv_addend(addend, add_node, annotation, referenced) -> bool:
+    "Whether `addend` is the residual branch of `add_node`: a single-user convolution partition"
+    if not isinstance(addend, torch.fx.Node) or addend not in annotation.input_qspec_map: return False
+    if len(addend.users) != 1: return False  # its result reaches something besides this add
+    own = _node_annotation(addend)
+    # Only a plain `QuantizationSpec` is this edge's own to drop. A shared or derived one is defined
+    # against another tensor, and the node that carries it is not the end of a private partition.
+    if own is None or not isinstance(own.output_qspec, QuantizationSpec): return False
+    if addend in referenced or (addend, add_node) in referenced: return False
+    return _conv_partition_root(addend) is not None
+
+
+def _conv_add_edges(
+    graph_module,  # An ANNOTATED pt2e graph module (after the quantizer's own `annotate`)
+) -> list:
+    "Every (add node, residual addend) pair `qdq_placement='skip_conv_add'` leaves unquantized"
+    referenced = _shared_references(graph_module)
+    edges = []
+    for node in graph_module.graph.nodes:
+        if node.op != 'call_function' or node.target not in _ADD_TARGETS: continue
+        annotation = _node_annotation(node)
+        if annotation is None: continue
+        # NEVER both edges of one add: a downsample block adds two convolutions, and clearing both
+        # would leave the add with no quantized input at all. When both qualify the FIRST addend is
+        # taken and the second keeps its pair.
+        match = next((a for a in node.args[:2]
+                      if _is_conv_addend(a, node, annotation, referenced)), None)
+        if match is not None: edges.append((node, match))
+    return edges
+
+
+def _skip_conv_add_annotation(
+    graph_module,  # An ANNOTATED pt2e graph module, edited in place
+) -> tuple[int, int]:
+    "Leave every conv→add edge of the graph unquantized; report (edges cleared, additions seen)"
+    # Two annotations make one Q/DQ pair, and both have to go: the convolution partition's
+    # `output_qspec` (which puts a quantize node on its result) and the add's `input_qspec_map` entry
+    # for it (which puts the matching dequantize node on that input). Removing one alone would leave
+    # the pair half-written.
+    edges = _conv_add_edges(graph_module)
+    # the additions are counted here, where the graph is already being walked: it is what a refusal
+    # reports back ("this model has N of them, and none qualified")
+    n_adds = sum(1 for node in graph_module.graph.nodes
+                 if node.op == 'call_function' and node.target in _ADD_TARGETS)
+    for add_node, addend in edges:
+        del _node_annotation(add_node).input_qspec_map[addend]
+        _node_annotation(addend).output_qspec = None
+    return len(edges), n_adds
+
+
+class _PlacementQuantizer(_TorchQuantizer):
+    "A pt2e quantizer that annotates like `inner`, then moves the Q/DQ pairs where `placement` says"
+    # `prepare_pt2e` / `prepare_qat_pt2e` read exactly four things off a quantizer, and all four are
+    # delegated below — `prepare_obs_or_fq_callback` as an ATTRIBUTE, because that is how it is read
+    # (bound now, called later). Wrapping rather than subclassing XNNPACKQuantizer is what keeps this
+    # alive as that class moves: the pass reads the ANNOTATED GRAPH, never torch internals.
+    def __init__(self,
+                 inner,           # The quantizer that decides the precision
+                 placement: str,  # Q/DQ placement to apply on top of it
+    ):
+        self.inner, self.placement = inner, placement
+        self.n_adds = self.n_skipped = 0  # read back by `_prepare_pt2e`, which refuses a zero match
+
+    def transform_for_annotation(self, model):
+        "Whatever `inner` does to the graph before it is annotated"
+        return self.inner.transform_for_annotation(model)
+
+    def annotate(self, model):
+        "Annotate with `inner`, then take the Q/DQ pairs off the edges `placement` names"
+        # AFTER `inner.annotate`, which runs `propagate_annotation` last: the pass therefore sees the
+        # final annotation, including the shared specs that pass-through operators get from it.
+        model = self.inner.annotate(model)
+        self.n_skipped, self.n_adds = _skip_conv_add_annotation(model)
+        return model
+
+    def validate(self, model) -> None:
+        "Whatever `inner` checks on the annotated graph"
+        return self.inner.validate(model)
+
+    @property
+    def prepare_obs_or_fq_callback(self):
+        "`inner`'s callback, read as an attribute the way `prepare_pt2e` reads it"
+        return self.inner.prepare_obs_or_fq_callback
+
+
 def _pt2e_quantizer(
     spec: QuantSpec | None = None,  # Precision to apply; `None` resolves the pt2e default
 ):
@@ -156,7 +302,13 @@ def _pt2e_quantizer(
         # `symmetric=False` is the caller asking for the stock preset, whose activations stay affine:
         # more range for the same 8 bits, at the price of non-zero zero-points in the exported graph.
         config = get_symmetric_quantization_config(is_per_channel=per_channel, is_qat=is_qat)
-    return XNNPACKQuantizer().set_global(config)
+    quantizer = XNNPACKQuantizer().set_global(config)
+    # 'per_op' is what the annotators already do, so the default arm builds exactly the quantizer this
+    # backend has always built: asking for the default placement explicitly cannot change one byte.
+    # (`getattr`: a spec pickled before this field existed unpickles with the slot UNSET.)
+    placement = getattr(spec, 'qdq_placement', None)
+    if placement in (None, 'per_op'): return quantizer
+    return _PlacementQuantizer(quantizer, placement)
 
 
 def _model_device(model: nn.Module) -> torch.device:
@@ -166,10 +318,29 @@ def _model_device(model: nn.Module) -> torch.device:
     return tensor.device if tensor is not None else torch.device('cpu')
 
 
+def _check_placement_applied(
+    quantizer,           # The quantizer `prepare` just ran
+    spec: QuantSpec,     # Precision it applied
+    verbose: bool,       # Report the edges that were cleared
+) -> None:
+    "Refuse a Q/DQ placement that matched nothing, so that a recorded placement is one that ran"
+    if not isinstance(quantizer, _PlacementQuantizer): return  # 'per_op': nothing to move
+    if not quantizer.n_skipped:
+        raise ValueError(
+            f"qdq_placement='{spec.qdq_placement}' found no conv→add edge to leave unquantized in this "
+            f"model: it has {quantizer.n_adds} add node(s), none of them fed by a single-user "
+            "convolution partition. It is a residual-network placement — a block whose branch ends in "
+            "a convolution feeding the addition. Use qdq_placement='per_op' for this model.")
+    if verbose:
+        print(f"pt2e: qdq_placement='{spec.qdq_placement}' left {quantizer.n_skipped} of "
+              f"{quantizer.n_adds} addition(s) reading a convolution at accumulator precision")
+
+
 def _prepare_pt2e(
     model: nn.Module,              # Model to capture
     example_input: torch.Tensor,   # One batch, whose batch size the captured graph is specialised to
     spec: QuantSpec | None = None, # Precision to apply; `None` resolves the pt2e default
+    verbose: bool = False,         # Report what the Q/DQ placement did to the annotated graph
 ) -> nn.Module:
     "Capture `model` with `torch.export` and insert the INT8 observers `spec` asks for"
     if not _HAS_PT2E:
@@ -187,7 +358,10 @@ def _prepare_pt2e(
     # QAT inserts fake-quantize modules where PTQ inserts observers, so every forward pass the training
     # loop runs already carries the rounding error the weights are being trained against.
     prepare = prepare_qat_pt2e if spec.method == 'qat' else prepare_pt2e
-    return prepare(exported.module(), _pt2e_quantizer(spec))
+    quantizer = _pt2e_quantizer(spec)
+    prepared = prepare(exported.module(), quantizer)
+    _check_placement_applied(quantizer, spec, verbose)
+    return prepared
 
 
 def _convert_pt2e(
@@ -243,7 +417,8 @@ def _first_input(dataloader: Any) -> torch.Tensor:
 # %% ../../nbs/quantize/quantizer.ipynb #fb1fd84a-dcf6-4ec5-966e-6fdd01e1d19b
 import contextlib
 
-_GRAMMAR_ARGS = ('weight_bits', 'act_bits', 'qscheme', 'group_size', 'symmetric')  # the precision arguments
+_GRAMMAR_ARGS = ('weight_bits', 'act_bits', 'qscheme', 'group_size', 'symmetric',
+                 'qdq_placement')  # the precision arguments
 _CONV_TYPES = (nn.Conv1d, nn.Conv2d, nn.Conv3d)
 # The modules a per-layer width can actually be HONORED on with the legacy FX flow — which is not the
 # same question as "what can PyTorch quantize?". It is the module types that flow's default mapping
@@ -278,8 +453,14 @@ class Quantizer:
                  qscheme: str | None = None,             # Weight axis: 'per_tensor', 'per_channel' or 'per_group'; None = the backend's own
                  group_size: int | None = None,          # Weights sharing one scale (qscheme='per_group')
                  symmetric: bool | None = None,          # Force a zero-point of 0 everywhere; None = the backend's own
+                 qdq_placement: str | None = None,       # Where the Q/DQ pairs sit ('pt2e'): 'per_op', 'skip_conv_add'; None = the backend's own
     ):
-        "Initialize a quantizer with specified backend and options."
+        """Initialize a quantizer with specified backend and options.
+
+        `qdq_placement='skip_conv_add'` is opt-in and changes the arithmetic: it leaves the residual
+        branch's convolution feeding its addition without a Q/DQ pair, so that result arrives at
+        accumulator precision. What a runtime then does with that graph is the runtime's own
+        property, and the effect on a TRAINED model's accuracy is UNMEASURED here."""
         store_attr()
         self._custom_mapping = qconfig_mapping is not None  # the caller brought their own configuration
         if self._custom_mapping and self._asked_precision():
@@ -289,7 +470,7 @@ class Quantizer:
         # rather than being quietly replaced by one it can (see `fasterai.core.precision`).
         self.spec = _resolve_spec(backend, method, weight_bits=weight_bits, act_bits=act_bits,
                                   qscheme=qscheme, group_size=group_size, symmetric=symmetric,
-                                  use_per_tensor=use_per_tensor)
+                                  qdq_placement=qdq_placement, use_per_tensor=use_per_tensor)
         self.method = self.spec.method  # on torchao, naming a precision names the recipe that applies it
 
         # `quantize_dynamic` rewrites every eligible layer off a type list and reads no per-module
@@ -605,7 +786,7 @@ class Quantizer:
             raise ValueError("pt2e backend requires calibration_dl: static quantization needs calibration data.")
 
         if self.verbose: print("pt2e: capturing the model with torch.export")
-        prepared = _prepare_pt2e(model, _first_input(calibration_dl), self.spec)
+        prepared = _prepare_pt2e(model, _first_input(calibration_dl), self.spec, verbose=self.verbose)
 
         if self.verbose: print(f"pt2e: calibrating with up to {max_calibration_samples} samples")
         self._calibrate_model(prepared, calibration_dl, max_samples=max_calibration_samples, device=device)
