@@ -93,7 +93,7 @@ try:
     from torch.ao.quantization.quantizer.xnnpack_quantizer import (XNNPACKQuantizer,
                                                                    get_symmetric_quantization_config)
     from torch.ao.quantization.quantizer.xnnpack_quantizer_utils import QuantizationConfig
-    from torch.ao.quantization.observer import (PerChannelMinMaxObserver,
+    from torch.ao.quantization.observer import (HistogramObserver, PerChannelMinMaxObserver,
                                                 MovingAveragePerChannelMinMaxObserver)
     from torch.ao.quantization.fake_quantize import FusedMovingAvgObsFakeQuantize
     from torch.ao.quantization import move_exported_model_to_train, move_exported_model_to_eval
@@ -110,7 +110,7 @@ import types
 # Every quantized tensor of the pt2e config shares these: signed INT8 over a range symmetric around 0,
 # so the zero-point is 0 and static (never recomputed at run time).
 _INT8_SYM = dict(dtype=torch.int8, quant_min=-127, quant_max=127, is_dynamic=False)
-_QAT_FQ_ARGS = dict(eps=2 ** -12)  # the resolution torch's own QAT presets give their fake-quantizers
+_OBS_EPS = 2 ** -12  # the resolution torch's own presets give the observers and fake-quantizers below
 _PT2E_MISSING = "The pt2e backend requires torch.ao.quantization.quantize_pt2e (PyTorch >= 2.1)."
 
 
@@ -124,27 +124,37 @@ def _symmetric_pt2e_config(
     "Build a fully-symmetric INT8 `QuantizationConfig` (zero_point == 0 on every quantized tensor)"
     # Portability: some ONNX consumers only accept quantized tensors whose zero_point is 0.
     # The stock `get_symmetric_quantization_config()` preset does not qualify: it is symmetric
-    # for the *weights* only, its activations stay affine (unsigned, non-zero zero-point).
+    # for the *weights* only, its activations stay affine — signed INT8 over [-128, 127], with a
+    # non-zero zero-point.
     if is_qat:
         # QAT trains THROUGH the quantizer: the module inserted in the graph must round the tensor and
         # pass the gradient straight through, which an observer alone (PTQ) does not do.
-        per_tensor_observer = MovingAverageMinMaxObserver
-        per_channel_observer = MovingAveragePerChannelMinMaxObserver
+        activation_observer = weight_observer = MovingAverageMinMaxObserver
+        per_channel_weight_observer = MovingAveragePerChannelMinMaxObserver
     else:
-        per_tensor_observer = MinMaxObserver
-        per_channel_observer = PerChannelMinMaxObserver
+        # Post-training, the activations are observed with a CLIPPING histogram observer, and
+        # calibration is slower than it would be with a running min/max. Half of a symmetric grid is
+        # spent on the sign, so a range stretched to the calibration tail leaves the rest of the
+        # distribution sharing the codes that remain.
+        # It is the observer, and the resolution, torch's own preset gives its activations. What is
+        # left between the two is the activation grid — the symmetric qscheme and its [-127, 127]
+        # range — which is the difference that still matters for accuracy; the weight observer also
+        # still differs from torch's by its eps.
+        activation_observer = HistogramObserver.with_args(eps=_OBS_EPS)
+        weight_observer = MinMaxObserver
+        per_channel_weight_observer = PerChannelMinMaxObserver
 
     def _spec(qscheme, observer, **kwargs):
         "One quantized tensor of the config, observed the way the flow that runs it needs"
-        ctr = FusedMovingAvgObsFakeQuantize.with_args(observer=observer, **_QAT_FQ_ARGS) if is_qat \
+        ctr = FusedMovingAvgObsFakeQuantize.with_args(observer=observer, eps=_OBS_EPS) if is_qat \
             else observer
         return QuantizationSpec(**_INT8_SYM, qscheme=qscheme, observer_or_fake_quant_ctr=ctr, **kwargs)
 
-    activation = _spec(torch.per_tensor_symmetric, per_tensor_observer)
+    activation = _spec(torch.per_tensor_symmetric, activation_observer)
     if per_channel:
-        weight = _spec(torch.per_channel_symmetric, per_channel_observer, ch_axis=0)
+        weight = _spec(torch.per_channel_symmetric, per_channel_weight_observer, ch_axis=0)
     else:
-        weight = _spec(torch.per_tensor_symmetric, per_tensor_observer)
+        weight = _spec(torch.per_tensor_symmetric, weight_observer)
     return QuantizationConfig(input_activation=activation, output_activation=activation,
                               weight=weight, bias=None, is_qat=is_qat)
 
