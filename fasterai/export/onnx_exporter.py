@@ -205,9 +205,6 @@ def _set_eval(model: nn.Module) -> None:
 
 def _check_exportable(model: nn.Module) -> None:
     "Refuse a precision this export cannot write, reading the spec `Quantizer` left on the model"
-    # `Quantizer` tags every model it quantizes with the precision cell that produced it. A cell whose
-    # arithmetic has no QDQ ONNX form (INT4 weights, weight-only, run-time activation scales) is refused
-    # here, instead of producing a graph that silently describes something else.
     spec = quant_spec(model)
     if spec is None or spec.exports: return  # untagged models are exported as they always were
     raise ValueError(
@@ -221,11 +218,9 @@ def _pt2e_translation_table() -> dict:
     _require("onnxscript", install_hint="pip install onnxscript")
     from onnxscript import opset18 as op
 
-    # Plain functions on purpose: wrapping them in `@onnxscript.script` makes them return a
-    # tuple, which the consuming operator (Conv, Gemm, ...) then rejects.
-    # The Cast is needed because pt2e stores zero-points as int64, while ONNX wants them in
-    # the quantized dtype.
+    # Plain functions: an `@onnxscript.script` wrapper would return a tuple the consuming operator rejects.
     def quantize_per_tensor(x, scale, zero_point, quant_min: int, quant_max: int, dtype: int):
+        # the Cast: pt2e stores zero-points as int64, ONNX wants them in the quantized dtype
         return op.QuantizeLinear(x, scale, op.Cast(zero_point, to=_INT8))
 
     def dequantize_per_tensor(x, scale, zero_point, quant_min: int, quant_max: int, dtype: int):
@@ -252,7 +247,7 @@ def _pt2e_translation_table() -> dict:
     return table
 
 
-def _graph_constants(graph) -> dict:
+def _graph_constants(graph) -> dict:  # proto/graph unannotated: onnx is an optional import
     "Every tensor an ONNX graph carries as a constant, by name, as the TensorProto that holds it"
     constants = {init.name: init for init in graph.initializer}
     for node in graph.node:  # a producer may emit a constant as a Constant node rather than an initializer
@@ -267,20 +262,12 @@ def _producers(graph) -> dict:
     return {output: node for node in graph.node for output in node.output}
 
 
-# The ONNX counterpart of the fx-level `_CONV_EPILOGUE_TARGETS` in `fasterai.quantize.quantizer`:
-# what a convolution's result may still pass through in the PRODUCED FILE and still be that
-# convolution's result. It is the shorter list of the two on purpose — the batch-norm of the fx list
-# never survives to a QDQ graph (both pt2e flows fold it into the convolution before the export), so
-# only the activation is left to walk through here.
+# ONNX counterpart of the quantizer's `_CONV_EPILOGUE_TARGETS`; shorter because pt2e folds the bn in.
 _CONV_EPILOGUE_OPS = ("Relu",)
 
 
 def _direct_conv_add_edges(graph) -> int:
     "How many `Add` inputs this graph takes from a `Conv`, with no Q/DQ pair on the way"
-    # This is what `qdq_placement='skip_conv_add'` leaves in the file, read back off the file: a
-    # convolution's result reaching an addition without being quantized on the way. On a graph
-    # quantized the ordinary way the count is 0 — every such edge carries a QuantizeLinear /
-    # DequantizeLinear pair.
     producers = _producers(graph)
     consumers: dict[str, int] = {}
     for node in graph.node:
@@ -316,11 +303,6 @@ def _weight_dims(name: str,
 
 def _set_conv_kernel_shape(graph) -> int:
     "Write the optional `kernel_shape` attribute on the Conv nodes that lack it, and count them"
-    # ONNX makes `kernel_shape` optional because a consumer can read the spatial dims off the weight
-    # tensor, and the dynamo exporter leaves it out. A QDQ graph hands the weight over as the *output
-    # of a DequantizeLinear* rather than as an initializer, and a parser that only reads shapes from
-    # initializers (TensorRT's ONNX parser among them) then has nothing to read and rejects the graph.
-    # Writing the attribute is spec-legal and changes no weight, no scale and no topology.
     from onnx import helper
 
     # Shapes come straight off the TensorProto, so this stays correct — and cheap — on a model whose
@@ -351,10 +333,19 @@ def _discard(output_path: Path, proto) -> None:
     output_path.unlink(missing_ok=True)
 
 
+def _refusal(output_path: Path, proto, message: str, error: type[Exception] = ValueError) -> Exception:
+    "Discard the produced graph and return the refusal that says so, for the caller to raise"
+    _discard(output_path, proto)
+    return error(f"{message} No file was kept.")
+
+
+def _accept_produced(produced: int) -> str:
+    "The sentence pointing a refusal at the opset the exporter produced"
+    return f"Pass opset_version={produced} to accept the graph as it was produced."
+
+
 def _declared_opset(proto) -> int | None:
     "The opset a graph declares for the default ONNX domain, or None when it declares none"
-    # `proto` and `graph` stay unannotated here and below, like the pt2e builders above: their types come
-    # from onnx, which this module must import without.
     return next((o.version for o in proto.opset_import if o.domain in ("", "ai.onnx")), None)
 
 
@@ -362,42 +353,36 @@ def _check_produced_opset(proto, requested: int, output_path: Path) -> None:
     "Refuse a produced graph that does not declare the opset that was asked for, keeping none of it"
     produced = _declared_opset(proto)
     if produced == requested: return
-    _discard(output_path, proto)
     if produced is None:
-        raise ValueError(
+        raise _refusal(
+            output_path, proto,
             f"export_qdq produced a graph that declares no opset for the default ONNX domain, so "
-            f"there is nothing to check the requested opset {requested} against. No file was kept.")
-    raise ValueError(
+            f"there is nothing to check the requested opset {requested} against.")
+    raise _refusal(
+        output_path, proto,
         f"export_qdq was asked for opset {requested}, and the graph it produced declares opset "
         f"{produced}: the ONNX version converter could not rewrite this graph to opset {requested}, "
         f"and torch.onnx kept the opset the exporter emitted. Pass opset_version={produced} to accept "
-        f"that graph, or export a model whose operators the converter can convert. No file was kept.")
+        f"that graph, or export a model whose operators the converter can convert.")
 
 
 def _check_produced_placement(proto, model: nn.Module, output_path: Path) -> None:
     "Refuse a produced graph that contradicts the Q/DQ placement the model's spec records"
-    # Same shape and same rationale as `_check_produced_opset`: what is checked is the FILE, not the
-    # request that produced it. `getattr` carries both of the ways there is nothing to read: a model
-    # fasterai never quantized has no spec at all (`quant_spec` returns None), and a spec pickled
-    # before this field existed unpickles with the SLOT UNSET — a frozen slots dataclass then raises
-    # AttributeError instead of handing back the default.
+    # `getattr`: no spec at all, or a spec pickled before this field existed (its slot unpickles UNSET).
     if getattr(quant_spec(model), 'qdq_placement', None) != 'skip_conv_add': return
     if _direct_conv_add_edges(proto.graph): return
-    _discard(output_path, proto)
-    raise ValueError(
+    raise _refusal(
+        output_path, proto,
         "export_qdq produced a graph that contradicts the model it exported: that model records "
         "qdq_placement='skip_conv_add', which leaves the residual branch's convolution reaching its "
         "addition unquantized, and in the produced file every `Add` reads its inputs through a Q/DQ "
         "pair — not one of them reads a `Conv`, directly or through that convolution's own "
-        "activation. No file was kept.")
+        "activation.")
 
 
 def _drop_unused_constant(graph, name: str) -> bool:
     "Remove a graph constant nothing reads any more, and say whether it was removed"
-    # The scan reads this graph's own nodes: a constant read only from inside a subgraph attribute (an
-    # `If` or a `Loop` body) would look unused here. Nothing a pt2e QDQ export writes has one — and the
-    # checker and the ONNX Runtime load in `_write_lowered` are the backstop, because a name dropped too
-    # eagerly leaves a graph neither of them accepts.
+    # This graph's own nodes only: nothing a pt2e QDQ export writes reads a constant from a subgraph.
     if any(name in node.input for node in graph.node): return False
     # a name the graph itself exposes is part of its interface, whichever node produced it
     if any(value.name == name for value in (*graph.input, *graph.output)): return False
@@ -414,11 +399,6 @@ def _drop_unused_constant(graph, name: str) -> bool:
 
 def _lower_reducemean_axes(graph) -> int:
     "Move each `ReduceMean`'s constant `axes` INPUT into the `axes` ATTRIBUTE, and count the nodes moved"
-    # Opset 18 moved `axes` from an attribute to an input for the whole Reduce family, and the ONNX
-    # version converter cannot move it back: it asserts on an attribute a freshly exported graph does not
-    # have. So a graph that is opset 17 in every other respect keeps the newer opset, and a parser that
-    # stops at opset 17 rejects the file. Writing the values back as an attribute is the same reduction
-    # over the same axes — and `_write_lowered` then checks and RUNS the result rather than trusting it.
     from onnx import helper, numpy_helper
 
     constants = _graph_constants(graph)
@@ -457,9 +437,7 @@ def _lower_produced_opset(proto, requested: int, output_path: Path) -> int | Non
     try:
         lowered = _lower_reducemean_axes(proto.graph)
     except ValueError as error:
-        _discard(output_path, proto)
-        raise ValueError(f"{error} Pass opset_version={produced} to accept the graph as it was "
-                         f"produced. No file was kept.") from None
+        raise _refusal(output_path, proto, f"{error} {_accept_produced(produced)}") from None
     for entry in proto.opset_import:
         if entry.domain in ("", "ai.onnx"): entry.version = requested
     return lowered
@@ -491,36 +469,29 @@ def _output_difference(before: list[np.ndarray],  # what the graph as produced a
     return f"max |Δ| = {max(deltas):.3e}"
 
 
-def _write_lowered(proto,                    # the rewritten graph, still only in memory
-                   output_path: Path,        # the file the exporter produced, and the file to end up with
-                   sample: torch.Tensor,     # the input both graphs are run on
-                   produced: int,            # the opset the exporter produced, read before the rewrite
-) -> None:
+def _write_lowered(proto, output_path: Path, sample: torch.Tensor, produced: int) -> None:
     "Put a lowered graph in place of the produced one — but only once it has been checked and run"
-    # A rewrite is a claim about what a graph means, and here the claim meets the file that would be
-    # shipped: ONNX's own checker reads it at the opset it now declares (an operator that genuinely needs
-    # a newer one has no schema there), and ONNX Runtime builds it and runs it against the graph as
-    # produced. What does not survive both is refused, and nothing is left on disk.
     import onnx
 
+    requested = _declared_opset(proto)  # what the rewrite relabelled the graph to
     if not _has_package("onnxruntime"):
-        _discard(output_path, proto)
-        raise ImportError(
+        raise _refusal(
+            output_path, proto,
             f"export_qdq checks a lowered graph by running it, which needs onnxruntime: install it (pip "
             f"install onnxruntime), or pass opset_version={produced} to accept the graph as it was "
-            f"produced. No file was kept.")
+            f"produced.",
+            error=ImportError)
 
     # The graph as produced is run FIRST, and on its own: a failure here is the exporter's graph failing,
     # and reporting it against the rewrite would blame the wrong thing.
     try:
         produced_out = _ort_outputs(output_path, sample)
     except Exception as error:
-        _discard(output_path, proto)
-        raise ValueError(
+        raise _refusal(
+            output_path, proto,
             f"export_qdq could not run the graph it PRODUCED — {type(error).__name__}: {error} — so there "
-            f"is nothing to check a rewrite to opset {_declared_opset(proto)} against. Pass "
-            f"opset_version={produced} to get that graph as it was produced, unchecked. "
-            f"No file was kept.") from error
+            f"is nothing to check a rewrite to opset {requested} against. Pass "
+            f"opset_version={produced} to get that graph as it was produced, unchecked.") from error
 
     # beside the produced file, so a relative external-data reference still resolves from there
     lowered_path = output_path.with_name(output_path.name + ".lowered")
@@ -530,23 +501,21 @@ def _write_lowered(proto,                    # the rewritten graph, still only i
         lowered_out = _ort_outputs(lowered_path, sample)
     except Exception as error:
         lowered_path.unlink(missing_ok=True)
-        _discard(output_path, proto)
-        raise ValueError(
-            f"export_qdq rewrote the graph it produced to opset {_declared_opset(proto)}, and the result "
+        raise _refusal(
+            output_path, proto,
+            f"export_qdq rewrote the graph it produced to opset {requested}, and the result "
             f"is not a graph ONNX accepts and runs at that opset — {type(error).__name__}: {error}. Only "
             f"`ReduceMean`'s axes input is lowered here; every other operator has to be one the requested "
-            f"opset already knows. Pass opset_version={produced} to accept the graph as it was produced. "
-            f"No file was kept.") from error
+            f"opset already knows. {_accept_produced(produced)}") from error
 
     difference = _output_difference(produced_out, lowered_out)
     if difference is not None:
         lowered_path.unlink(missing_ok=True)
-        _discard(output_path, proto)
-        raise ValueError(
-            f"export_qdq rewrote the graph it produced to opset {_declared_opset(proto)}, and the "
+        raise _refusal(
+            output_path, proto,
+            f"export_qdq rewrote the graph it produced to opset {requested}, and the "
             f"rewritten graph does not compute what the produced one computes ({difference}). The rewrite "
-            f"changes how the axes are spelled and nothing else. Pass opset_version={produced} to accept "
-            f"the graph as it was produced. No file was kept.") from None
+            f"changes how the axes are spelled and nothing else. {_accept_produced(produced)}") from None
     lowered_path.replace(output_path)
 
 # %% ../../nbs/export/onnx_exporter.ipynb #467ceb9a
@@ -561,8 +530,6 @@ def export_qdq(
     output_names: list[str] | None = None, # Names for output tensors
 ) -> Path:
     "Export a quantized model to ONNX, keeping its Q/DQ node pairs intact"
-    # Separate from `export_onnx` on purpose: that function runs `onnxoptimizer.optimize()`,
-    # whose fusion passes fold away the very Q/DQ pairs this export exists to preserve.
     _check_exportable(model)
     _require("onnx", "onnxscript", install_hint="pip install onnx onnxscript")
     import onnx
@@ -593,22 +560,17 @@ def export_qdq(
     # Everything below reads the FILE that was produced, not the request that produced it.
     # `load_external_data=False` keeps that cheap: opsets, attributes and shapes live in the proto.
     proto = onnx.load(str(output_path), load_external_data=False)
-    # torch.onnx exports at the exporter's own opset and converts afterwards; when the ONNX version
-    # converter cannot rewrite an operator it logs the failure and hands back the unconverted graph,
-    # so `opset_version` is dropped rather than applied and only a log line says so. What the converter
-    # gave up on, `_lower_produced_opset` rewrites here — and `_write_lowered` below only keeps the
-    # rewrite once ONNX has checked it and ONNX Runtime has run it.
     produced = _declared_opset(proto)  # read BEFORE the rewrite, which is what makes it declare another
     lowered = _lower_produced_opset(proto, opset_version, output_path)
     _check_produced_opset(proto, opset_version, output_path)
     _check_produced_placement(proto, model, output_path)
 
-    if dynamic_batch:  # report what was produced, not what was asked for
-        if not proto.graph.input[0].type.tensor_type.shape.dim[0].dim_param:
-            warnings.warn("The exported graph kept a STATIC batch dimension: a module captured by "
-                          "torch.export is specialised to the batch size it was captured with. "
-                          "Re-capture the source model with a dynamic batch before quantizing.",
-                          UserWarning, stacklevel=2)
+    # report what was produced, not what was asked for
+    if dynamic_batch and not proto.graph.input[0].type.tensor_type.shape.dim[0].dim_param:
+        warnings.warn("The exported graph kept a STATIC batch dimension: a module captured by "
+                      "torch.export is specialised to the batch size it was captured with. "
+                      "Re-capture the source model with a dynamic batch before quantizing.",
+                      UserWarning, stacklevel=2)
 
     patched = _set_conv_kernel_shape(proto.graph)
     # `lowered` is 0 when the rewrite found nothing to move, and that is a real outcome: the graph was

@@ -46,12 +46,6 @@ if _HAS_TORCHAO:
 if _HAS_INT4:
     _TORCHAO_CONFIGS['int4_weight_only'] = Int4WeightOnlyConfig
 
-# Per-layer widths need two things torchao keeps in `quant_api`: the configuration class that maps a
-# layer name to a config (or to `None`, meaning "leave this one alone"), and the predicate `quantize_`
-# itself uses to decide what counts as a Linear. Borrowing that predicate rather than writing
-# `isinstance(m, nn.Linear)` is what keeps the two paths identical: torchao SKIPS
-# `NonDynamicallyQuantizableLinear` (`MultiheadAttention.out_proj`), so a hand-rolled isinstance would
-# quantize layers the uniform path leaves in floating point.
 _FQN_CONFIG = None          # torchao's {layer name: config} configuration class
 _torchao_is_linear = None   # torchao's own "is this a Linear I rewrite?" predicate
 _HAS_FQN_CONFIG = False
@@ -73,16 +67,10 @@ _FQN_MISSING = ("A per-layer `weight_bits` dict on backend='torchao' needs a tor
 
 def _is_quantized_weight(module: nn.Module) -> bool:
     "Whether torchao replaced this module's weight with one of its own tensor subclasses"
-    # The provenance is the CLASS of the weight: torchao swaps `nn.Parameter` for an
-    # `AffineQuantizedTensor` (or another of its subclasses), all of which live under `torchao.`.
-    # Probing a named attribute instead (`weight.layout_type`) silently reports zero once torchao
-    # renames it, which is exactly what it used to do here.
     return type(getattr(module, 'weight', None)).__module__.split('.')[0] == 'torchao'
 
 # %% ../../nbs/quantize/quantizer.ipynb #9aa89c26
-# The pt2e (PyTorch 2 Export) flow lives in torch core — `torch.ao.quantization.quantize_pt2e`
-# and `torch.ao.quantization.quantizer` — not in torchao: torchao 0.16 ships no
-# `xnnpack_quantizer` module, so this backend needs no third-party package.
+# The pt2e (PyTorch 2 Export) flow lives in torch core, not in torchao: it needs no third-party package.
 try:
     from torch.ao.quantization.quantize_pt2e import prepare_pt2e, prepare_qat_pt2e, convert_pt2e
     from torch.ao.quantization.quantizer import QuantizationSpec, SharedQuantizationSpec
@@ -113,18 +101,13 @@ _OBS_EPS = 2 ** -12  # the resolution torch's own presets give the observers and
 _PT2E_MISSING = "The pt2e backend requires torch.ao.quantization.quantize_pt2e (PyTorch >= 2.1)."
 
 
-# The two builders below are deliberately left unannotated: the types they take and return
-# (`QuantizationConfig`, `XNNPACKQuantizer`) only exist when `_HAS_PT2E`, and this module must import
-# on a torch build that ships neither.
+# The two builders below stay unannotated: their types only exist when `_HAS_PT2E`.
 def _symmetric_pt2e_config(
     per_channel: bool = True,  # One scale per output channel of a weight tensor, instead of one per tensor
     is_qat: bool = False,      # Quantize through fake-quantize modules, for a model that keeps training
 ):
     "Build a fully-symmetric INT8 `QuantizationConfig` (zero_point == 0 on every quantized tensor)"
-    # Portability: some ONNX consumers only accept quantized tensors whose zero_point is 0.
-    # The stock `get_symmetric_quantization_config()` preset does not qualify: it is symmetric
-    # for the *weights* only, its activations stay affine — signed INT8 over [-128, 127], with a
-    # non-zero zero-point.
+    # The stock `get_symmetric_quantization_config()` preset is symmetric for the *weights* only.
     if is_qat:
         # QAT trains THROUGH the quantizer: the module inserted in the graph must round the tensor and
         # pass the gradient straight through, which an observer alone (PTQ) does not do.
@@ -159,21 +142,13 @@ def _symmetric_pt2e_config(
 
 
 # --- where the Q/DQ pairs sit ---------------------------------------------------------------------
-# `qdq_placement` is an ANNOTATION-time axis: the pass below edits the graph torch has just annotated,
-# so the placement the caller asked for is the one the prepared model, the QAT training run and the
-# exported file all carry. Editing the ONNX graph afterwards instead would make the exported file and
-# the model the caller holds disagree by construction — and `verify_qdq` compares exactly those two.
 _ANNOTATION = 'quantization_annotation'  # torch's own key for the annotation it leaves on a node
 
 _ADD_TARGETS = (torch.ops.aten.add.Tensor, torch.ops.aten.add_.Tensor)
 _CONV_TARGETS = (torch.ops.aten.conv1d.default, torch.ops.aten.conv2d.default,
                  torch.ops.aten.conv3d.default, torch.ops.aten.convolution.default)
-# What a convolution's result may still pass through and still BE the convolution's result. The three
-# spellings this covers are all real: PTQ fuses conv+bn before annotating, QAT does not (it annotates
-# BEFORE `_fuse_conv_bn_qat`, so the qspec sits on the batch-norm), and `_annotate_conv_relu` puts the
-# qspec on the ReLU. Its counterpart on the exported file is `_CONV_EPILOGUE_OPS` in
-# `fasterai.export.onnx_exporter`, which the placement post-condition walks back through: the two
-# lists have to agree, or an edge this pass clears is one that post-condition cannot find.
+# What a convolution's result may still pass through and still BE the convolution's result: PTQ fuses
+# conv+bn before annotating, QAT annotates before the fusion, and `_annotate_conv_relu` sits on the ReLU.
 _CONV_EPILOGUE_TARGETS = (torch.ops.aten.batch_norm.default, torch.ops.aten.relu.default,
                           torch.ops.aten.relu_.default)
 _MAX_CONV_EPILOGUE = 2  # conv -> bn -> relu: two epilogue nodes, plus the convolution itself (the +1 below)
@@ -186,9 +161,6 @@ def _node_annotation(node):
 
 def _shared_references(graph_module) -> set:
     "Every edge or node a `SharedQuantizationSpec` points at — a qspec no pass may take away"
-    # Removing a qspec another tensor's spec is defined against would leave that one dangling, which
-    # is a broken graph rather than a different placement. Such a node is skipped, and counted as
-    # unmatched.
     referenced = set()
     for node in graph_module.graph.nodes:
         annotation = _node_annotation(node)
@@ -235,9 +207,7 @@ def _conv_add_edges(
         if node.op != 'call_function' or node.target not in _ADD_TARGETS: continue
         annotation = _node_annotation(node)
         if annotation is None: continue
-        # NEVER both edges of one add: a downsample block adds two convolutions, and clearing both
-        # would leave the add with no quantized input at all. When both qualify the FIRST addend is
-        # taken and the second keeps its pair.
+        # Never both edges of one add, which would leave it with no quantized input: the FIRST wins.
         match = next((a for a in node.args[:2]
                       if _is_conv_addend(a, node, annotation, referenced)), None)
         if match is not None: edges.append((node, match))
@@ -248,10 +218,6 @@ def _skip_conv_add_annotation(
     graph_module,  # An ANNOTATED pt2e graph module, edited in place
 ) -> tuple[int, int]:
     "Leave every conv→add edge of the graph unquantized; report (edges cleared, additions seen)"
-    # Two annotations make one Q/DQ pair, and both have to go: the convolution partition's
-    # `output_qspec` (which puts a quantize node on its result) and the add's `input_qspec_map` entry
-    # for it (which puts the matching dequantize node on that input). Removing one alone would leave
-    # the pair half-written.
     edges = _conv_add_edges(graph_module)
     # the additions are counted here, where the graph is already being walked: it is what a refusal
     # reports back ("this model has N of them, and none qualified")
@@ -265,10 +231,7 @@ def _skip_conv_add_annotation(
 
 class _PlacementQuantizer(_TorchQuantizer):
     "A pt2e quantizer that annotates like `inner`, then moves the Q/DQ pairs where `placement` says"
-    # `prepare_pt2e` / `prepare_qat_pt2e` read exactly four things off a quantizer, and all four are
-    # delegated below — `prepare_obs_or_fq_callback` as an ATTRIBUTE, because that is how it is read
-    # (bound now, called later). Wrapping rather than subclassing XNNPACKQuantizer is what keeps this
-    # alive as that class moves: the pass reads the ANNOTATED GRAPH, never torch internals.
+    # Wraps XNNPACKQuantizer rather than subclassing it: `prepare_pt2e` reads only the four members below.
     def __init__(self,
                  inner,           # The quantizer that decides the precision
                  placement: str,  # Q/DQ placement to apply on top of it
@@ -312,9 +275,8 @@ def _pt2e_quantizer(
         # more range for the same 8 bits, at the price of non-zero zero-points in the exported graph.
         config = get_symmetric_quantization_config(is_per_channel=per_channel, is_qat=is_qat)
     quantizer = XNNPACKQuantizer().set_global(config)
-    # 'per_op' is what the annotators already do, so the default arm builds exactly the quantizer this
-    # backend has always built: asking for the default placement explicitly cannot change one byte.
-    # (`getattr`: a spec pickled before this field existed unpickles with the slot UNSET.)
+    # 'per_op' is what the annotators already do, so the default arm builds the quantizer this backend
+    # has always built. (`getattr`: a spec pickled before this field existed unpickles with it UNSET.)
     placement = getattr(spec, 'qdq_placement', None)
     if placement in (None, 'per_op'): return quantizer
     return _PlacementQuantizer(quantizer, placement)
@@ -398,9 +360,7 @@ def _bind_exported_modes(
     graph_module: nn.Module,  # Module captured by torch.export, prepared or converted
 ) -> nn.Module:
     "Give an exported graph module a working `.train()`/`.eval()`, so a training loop can drive it"
-    # An exported module raises NotImplementedError on `.train()`/`.eval()`: the eager flags mean nothing
-    # to a captured graph, where torch rewrites the batch-norm and dropout NODES instead. These two bind
-    # to that rewrite — as instance methods, so that a deepcopy of the module rebinds them to the copy.
+    # Instance methods, so that a deepcopy of the module rebinds them to the copy.
     if not _HAS_PT2E:  # importable unconditionally, callable only where pt2e is (see `_convert_pt2e`)
         raise ImportError(_PT2E_MISSING)
     graph_module.train = types.MethodType(_exported_train, graph_module)
@@ -429,15 +389,7 @@ import contextlib
 _GRAMMAR_ARGS = ('weight_bits', 'act_bits', 'qscheme', 'group_size', 'symmetric',
                  'qdq_placement')  # the precision arguments
 _CONV_TYPES = (nn.Conv1d, nn.Conv2d, nn.Conv3d)
-# The modules a per-layer width can actually be HONORED on with the legacy FX flow — which is not the
-# same question as "what can PyTorch quantize?". It is the module types that flow's default mapping
-# rewrites, so it is read from torch rather than listed by hand: measured on torch 2.9.1 / x86, naming
-# any of them 16 does leave that module in floating point, and the list is wider than the convolutions
-# and Linear (LayerNorm, the instance norms, PReLU and a standalone BatchNorm are in it too).
-# `nn.Embedding`/`nn.EmbeddingBag` are dropped: they ARE in the mapping, but quantizing them needs a
-# float_qparams observer this flow never sets, so they stay float and a width on them is ignored.
-# `nn.LSTM`/`GRU`/`RNN` are not in the mapping at all — they are the dynamic flow's, and a per-layer
-# dict is refused there (`method='dynamic'` reads no per-module configuration).
+# Embedding/EmbeddingBag are dropped: quantizing them needs an observer this flow never sets.
 _NO_DEFAULT_OBSERVER = (nn.Embedding, nn.EmbeddingBag)
 _LEGACY_QUANT_TYPES = tuple(t for t in get_default_static_quant_module_mappings()
                             if isinstance(t, type) and issubclass(t, nn.Module)
@@ -509,10 +461,7 @@ class Quantizer:
                 self.qconfig_mapping = get_default_qat_qconfig_mapping(backend)
             else:
                 self.qconfig_mapping = get_default_qconfig_mapping(backend)
-            # `use_per_tensor` is not `spec.qscheme == 'per_tensor'`: the flag REPLACES the default
-            # mapping, while the spec field only reports where the weight scales live. qnnpack shows the
-            # difference — its default mapping is already per-tensor, and must be left alone. Only an
-            # explicit request flips the flag.
+            # The flag REPLACES the default mapping, so only an explicit request may flip it.
             if qscheme == 'per_tensor': self.use_per_tensor = True
             if self.use_per_tensor:
                 self._update_qconfig_for_per_tensor()
@@ -536,19 +485,15 @@ class Quantizer:
 
     def _layer_width(self, name: str) -> int:
         "Width `name` ends at: 16 when the dict names it or a module containing it, else the uniform width"
-        # Deliberately not "the most specific entry wins": only a 16 is written into the mapping (as a
-        # `set_module_name(..., None)`), so an inner 8 cannot undo an outer 16 — `_check_model` refuses
-        # that contradiction rather than letting this report a width the artifact will not have.
-        bits = self.spec.layer_bits
-        if not bits: return self.spec.weight_bits
-        return 16 if any(bits.get(n) == 16 for n in self._covering_names(name)) else self.spec.weight_bits
+        # Not "most specific wins": only a 16 reaches the mapping; `_check_model` refuses an 8 under one.
+        bits = self.spec.layer_bits or {}
+        if any(bits.get(n) == 16 for n in self._covering_names(name)): return 16
+        return self.spec.weight_bits
 
     def _quantizable_names(self, model: nn.Module) -> list[str]:
         "Names of the layers this backend rewrites — the only ones a per-layer width can be honored on"
         if self.backend == 'torchao':
-            # torchao is asked for its OWN predicate, so that a per-layer request selects exactly the
-            # layers its uniform path would; notably it skips `MultiheadAttention.out_proj`, an
-            # `nn.Linear` subclass it never rewrites.
+            # torchao's OWN predicate, so a request selects exactly the layers its uniform path would.
             if _torchao_is_linear is None:  # a torchao that does not expose its filter: fall back
                 return [n for n, m in model.named_modules() if isinstance(m, nn.Linear)]
             return [n for n, m in model.named_modules() if _torchao_is_linear(m, n)]
@@ -592,10 +537,6 @@ class Quantizer:
                     f"{len(convs)} convolution(s) ({_preview(convs, 3)}) that would silently stay in "
                     "floating point. Quantize a convolutional model per channel (qscheme='per_channel').")
         if not self.spec.layer_bits: return
-        # A width only means something on a layer the backend rewrites, or on a module holding some.
-        # Named anywhere else it is dropped on the floor; asked as an 8 under a 16 it loses to the 16;
-        # and if it leaves EVERY rewritten layer at 16 it produces a model that was never quantized.
-        # All three are the silent half-quantization this grammar refuses.
         nameable = self._nameable_names(quantizable)
         elsewhere = [n for n in self.spec.layer_bits if n not in nameable]
         if elsewhere:
@@ -624,9 +565,8 @@ class Quantizer:
 
     def _tag(self, quantized: nn.Module, source: nn.Module) -> nn.Module:
         "Record on the quantized model which precision cell produced it"
-        # Two ways the spec can fail to describe what ran, and neither may be recorded: the legacy paths
-        # hand the SOURCE model back when they fail (`is not`), and a caller-supplied `qconfig_mapping`
-        # decides the configuration itself.
+        # A spec is recorded only when it describes what ran: the legacy paths hand the SOURCE model
+        # back when they fail (`is not`), and a caller's `qconfig_mapping` decides the configuration.
         if quantized is not source and not self._custom_mapping: setattr(quantized, SPEC_ATTR, self.spec)
         return quantized
 
@@ -739,10 +679,7 @@ class Quantizer:
 
     def _torchao_fqn_config(self, model: nn.Module):
         "One torchao entry per Linear layer: the shared config where the width is 8, `None` where it is 16"
-        # EXPLICIT expansion, one entry per layer. torchao's `_default` key is deprecated, and a dict
-        # holding only the exceptions would leave "and the rest?" to torchao. The configuration object is
-        # built ONCE and shared: the transform reads it and never mutates it, so every layer the dict
-        # quantizes gets bit-for-bit what the uniform path would have given it.
+        # EXPLICIT expansion, one entry per layer: torchao's `_default` key is deprecated.
         config = self._torchao_config()
         entries = {n: None if self._layer_width(n) == 16 else config
                    for n in self._quantizable_names(model)}
