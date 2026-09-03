@@ -4,4 +4,6 @@ on:  [workflow_dispatch, pull_request, push]
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PIP_CONSTRAINT: ${{ github.workspace }}/.github/constraints.txt
     steps: [uses: fastai/workflows/nbdev3-ci@master]
