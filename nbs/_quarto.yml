@@ -91,6 +91,7 @@ website:
         - core/criteria.ipynb
         - core/schedules.ipynb
         - core/precision.ipynb
+        - core/ratio.ipynb
       - section: Sparse
         contents:
         - sparse/sparsifier.ipynb

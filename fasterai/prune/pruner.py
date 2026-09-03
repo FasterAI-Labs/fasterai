@@ -14,6 +14,7 @@ import pickle
 from itertools import cycle
 from fastcore.basics import store_attr, listify, true
 from ..core.criteria import *
+from ..core.ratio import as_fraction
 from fastai.vision.all import *
 
 
@@ -24,24 +25,32 @@ from torch.fx import symbolic_trace
 from ..core.schedule import Schedule
 
 class Pruner():
-    "Structured pruning for neural networks using torch_pruning"
-    def __init__(self, model, pruning_ratio, context, criteria, schedule=linear_scheduler, ignored_layers=None, example_inputs=torch.randn(1, 3, 224, 224), *args, **kwargs):
+    "Structured pruning for neural networks using torch_pruning. `pruning_ratio` is a fraction in [0, 1] (0.4 = 40%)"
+    def __init__(self,
+                 model,                       # The model to prune
+                 pruning_ratio,               # Filters to remove, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict (0 leaves a layer alone)
+                 context,                     # 'local' (per-layer) or 'global' (across the whole model)
+                 criteria,                    # How to select filters to prune, from `fasterai.core.criteria`
+                 schedule=linear_scheduler,   # How the ratio progresses over the pruning steps
+                 ignored_layers=None,         # Layers to leave untouched (default: output Linear and attention qkv)
+                 example_inputs=torch.randn(1, 3, 224, 224),  # Input used to trace layer dependencies
+                 *args,
+                 **kwargs                     # Passed to `tp.pruner.MetaPruner` (e.g. `default_pruning_ratio` for the layers a dict does not name)
+    ):
         store_attr()
         self.num_heads = {}
         self._original_params = sum(p.numel() for p in model.parameters())
         if not self.ignored_layers: self.get_ignored_layers(self.model)
 
-        # Handle pruning_ratio as float or dict
         self.pruning_ratio_dict = None
         if isinstance(self.pruning_ratio, dict):
-            # Convert name-based dict to module-based dict for torch-pruning
+            self.pruning_ratio = {k: as_fraction(v, 'pruning_ratio', layer=k if isinstance(k, str) else type(k).__name__)
+                                  for k, v in self.pruning_ratio.items()}
             self.pruning_ratio_dict = self._resolve_pruning_ratio_dict(self.pruning_ratio)
-            self.default_pruning_ratio = kwargs.pop('default_pruning_ratio', 0.0)
+            self.default_pruning_ratio = as_fraction(kwargs.pop('default_pruning_ratio', 0.), 'default_pruning_ratio')
             print(f"Using per-layer pruning with {len(self.pruning_ratio_dict)} layer-specific ratios")
         else:
-            if self.pruning_ratio > 1: self.pruning_ratio = self.pruning_ratio / 100
-            if not (0 < self.pruning_ratio <= 1):
-                raise ValueError(f"pruning_ratio must be in range (0, 1], got {self.pruning_ratio}")
+            self.pruning_ratio = as_fraction(self.pruning_ratio, 'pruning_ratio', allow_zero=False)
             self.default_pruning_ratio = self.pruning_ratio
 
         # Convert Schedule object to torch-pruning compatible function
@@ -87,14 +96,10 @@ class Pruner():
         resolved = {}
         for key, ratio in ratio_dict.items():
             if isinstance(key, str):
-                if key in name_to_module:
-                    module = name_to_module[key]
-                    # Normalize ratio to 0-1 range
-                    resolved[module] = ratio / 100 if ratio > 1 else ratio
-                else:
-                    print(f"Warning: Layer '{key}' not found in model, skipping")
+                if key in name_to_module: resolved[name_to_module[key]] = ratio
+                else: print(f"Warning: Layer '{key}' not found in model, skipping")
             elif isinstance(key, nn.Module):
-                resolved[key] = ratio / 100 if ratio > 1 else ratio
+                resolved[key] = ratio
         return resolved
           
     def prune_model(self):

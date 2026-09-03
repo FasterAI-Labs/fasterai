@@ -6,6 +6,7 @@ from fastai.vision.all import *
 from fastai.callback.all import *
 from .sparsifier import *
 from ..core.criteria import *
+from ..core.ratio import as_fraction
 from ..core.schedule import *
 from typing import Callable, Type
 
@@ -19,7 +20,7 @@ __all__ = ['SparsifyCallback']
 # %% ../../nbs/sparse/sparsify_callback.ipynb #4b720750
 class SparsifyCallback(Callback):
     def __init__(self, 
-                 sparsity: float | dict[str, float],        # Target sparsity (float) or per-layer dict
+                 sparsity: float | dict[str, float],        # Target sparsity, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict
                  granularity: str,                           # Type of pruning granularity (e.g., 'weight', 'filter')
                  context: str,                               # Pruning context ('global' or 'local')
                  criteria: Criteria,                         # Criteria for determining weights to keep
@@ -35,6 +36,8 @@ class SparsifyCallback(Callback):
     ):
         "Callback to sparsify model during training according to a schedule"
         store_attr()
+        self.sparsity = ({k: as_fraction(v, 'sparsity', layer=k) for k, v in sparsity.items()}
+                         if isinstance(sparsity, dict) else as_fraction(sparsity, 'sparsity'))
         self.current_sparsity = 0.0
 
     def _sparsity_value(self) -> float:
@@ -43,9 +46,16 @@ class SparsifyCallback(Callback):
             return next(iter(self.current_sparsity.values()))
         return self.current_sparsity
 
+    @staticmethod
+    def _as_pct(sparsity: float | dict) -> str:
+        "Format a fraction (or a per-layer dict of fractions) as a percentage, for display"
+        if isinstance(sparsity, dict):
+            return str({k: f'{v:.2%}' for k, v in sparsity.items()})
+        return f'{sparsity:.2%}'
+
     def before_fit(self) -> None:
         "Setup sparsifier before training"
-        print(f'Sparsifying {self.granularity} until a sparsity of {self.sparsity}%')
+        print(f'Sparsifying {self.granularity} until a sparsity of {self._as_pct(self.sparsity)}')
         assert self.schedule.start_pct*self.n_epoch>=self.rewind_epoch, 'You must rewind to an epoch before the start of the pruning process'
         model = self.model or self.learn.model
         data = self.learn.dls.train if getattr(self.criteria, 'needs_data', False) else None
@@ -61,7 +71,6 @@ class SparsifyCallback(Callback):
         "Update sparsity level and potentially apply pruning"
         progress = self.schedule.progress(round(self.pct_train, 3))
         
-        # Compute current sparsity: float * progress or {layer: sp * progress}
         if isinstance(self.sparsity, dict):
             self.current_sparsity = {k: v * progress for k, v in self.sparsity.items()}
         else:
@@ -70,7 +79,7 @@ class SparsifyCallback(Callback):
         if self.schedule.changed and self.training:
             if self.lth and self.save_tickets:
                 print('Saving Intermediate Ticket')
-                self.sparsifier.save_model(f'winning_ticket_{self._sparsity_value():.2f}.pth', self.learn.model)
+                self.sparsifier.save_model(f'winning_ticket_{self._sparsity_value()*100:.2f}.pth', self.learn.model)
             self.sparsifier.sparsify_model(self.current_sparsity, self.round_to)
 
     def after_step(self) -> None:
@@ -85,20 +94,17 @@ class SparsifyCallback(Callback):
         "Log sparsity after each epoch"
         if isinstance(self.current_sparsity, dict):
             avg_sparsity = sum(self.current_sparsity.values()) / len(self.current_sparsity)
-            print(f'Sparsity at the end of epoch {self.epoch}: avg={avg_sparsity:.2f}%')
+            print(f'Sparsity at the end of epoch {self.epoch}: avg={avg_sparsity:.2%}')
         else:
-            print(f'Sparsity at the end of epoch {self.epoch}: {self.current_sparsity:.2f}%')
+            print(f'Sparsity at the end of epoch {self.epoch}: {self.current_sparsity:.2%}')
 
     def after_fit(self) -> None:
         "Clean up after training"
         if self.save_tickets:
             print('Saving Final Ticket')
-            self.sparsifier.save_model(f'winning_ticket_{self._sparsity_value():.2f}.pth', self.learn.model)
+            self.sparsifier.save_model(f'winning_ticket_{self._sparsity_value()*100:.2f}.pth', self.learn.model)
         
-        if isinstance(self.current_sparsity, dict):
-            print(f'Final Sparsity: {self.current_sparsity}')
-        else:
-            print(f'Final Sparsity: {self.current_sparsity:.2f}%')
+        print(f'Final Sparsity: {self._as_pct(self.current_sparsity)}')
         
         if self.reset_end: self.sparsifier._reset_weights()
         self.sparsifier._clean_buffers()

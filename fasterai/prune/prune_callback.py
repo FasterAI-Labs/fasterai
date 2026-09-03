@@ -8,6 +8,7 @@ from fastai.vision.all import *
 from fastai.callback.all import *
 from .pruner import *
 from ..core.criteria import *
+from ..core.ratio import as_fraction
 from ..core.schedule import *
 
 import torch
@@ -17,7 +18,7 @@ import torch.nn.functional as F
 # %% ../../nbs/prune/prune_callback.ipynb #50598138-7d55-4774-b711-114c1c42dce8
 class PruneCallback(Callback):
     def __init__(self,
-                 pruning_ratio,  # Ratio of params to remove: float/int (0-1 or 0-100), or dict[layer_name, ratio] for per-layer targets (requires context='local')
+                 pruning_ratio,  # Filters to remove, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict (requires context='local')
                  schedule,       # When to prune, from `fasterai.core.schedule` (e.g. one_shot, agp)
                  context,        # 'local' (per-layer) or 'global' (across the whole model); per-layer dict requires 'local'
                  criteria,       # How to select filters to prune, from `fasterai.core.criteria`
@@ -29,6 +30,7 @@ class PruneCallback(Callback):
         self._is_per_layer = False
         self.extra_args = args
         self.extra_kwargs = kwargs
+        self._validate_pruning_ratio()
 
     def _build_pruning_schedule(self, sched_func):
         "Create a schedule function compatible with torch-pruning's Pruner"
@@ -41,21 +43,16 @@ class PruneCallback(Callback):
         return scheduler
 
     def _validate_pruning_ratio(self) -> None:
-        "Normalize/validate pruning_ratio, supporting both a single float and a per-layer dict"
+        "Read pruning_ratio as a fraction, supporting both a single value and a per-layer dict"
         self._is_per_layer = isinstance(self.pruning_ratio, dict)
         if self._is_per_layer:
-            # Per-layer targets compare each layer independently — global context is incompatible
             if self.context != 'local':
                 raise ValueError("Per-layer pruning_ratio dict requires context='local' "
                                  "(global context compares importance across layers).")
-            for layer, ratio in self.pruning_ratio.items():
-                if not (0 < ratio <= 100):
-                    raise ValueError(f"pruning_ratio for '{layer}' must be in range (0, 100], got {ratio}")
-            # Normalization of each value is handled by Pruner._resolve_pruning_ratio_dict
+            self.pruning_ratio = {l: as_fraction(r, 'pruning_ratio', layer=l)
+                                  for l, r in self.pruning_ratio.items()}
         else:
-            self.pruning_ratio = self.pruning_ratio/100 if self.pruning_ratio>1 else self.pruning_ratio
-            if not (0 < self.pruning_ratio <= 1):
-                raise ValueError(f"pruning_ratio must be in range (0, 1], got {self.pruning_ratio}")
+            self.pruning_ratio = as_fraction(self.pruning_ratio, 'pruning_ratio', allow_zero=False)
 
     def before_fit(self) -> None:
         "Setup pruner before training"
@@ -88,12 +85,11 @@ class PruneCallback(Callback):
             self.pruner.prune_model()
 
     def after_epoch(self) -> None:
-        "Log sparsity after each epoch"
+        "Log the pruning ratio reached after each epoch"
         if self._is_per_layer:
             print(f'Pruning {len(self.pruning_ratio)} layers to per-layer targets (epoch {self.epoch})')
             return
         completed_steps = (self.epoch + 1) * len(self.learn.dls.train)
-        # Bounds check for sparsity_levels access
         if completed_steps > 0 and completed_steps <= len(self.sparsity_levels):
-            current_sparsity = self.sparsity_levels[completed_steps - 1]
-            print(f'Sparsity at the end of epoch {self.epoch}: {current_sparsity*100:.2f}%')
+            current_ratio = self.sparsity_levels[completed_steps - 1]
+            print(f'Pruning ratio at the end of epoch {self.epoch}: {current_ratio:.2%}')

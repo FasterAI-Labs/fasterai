@@ -2,12 +2,14 @@
 
 # %% ../../nbs/sparse/sparsifier.ipynb #686a522f
 from __future__ import annotations
+import copy
 import torch
 import torch.nn as nn
 import pickle
 from fastcore.basics import store_attr, true
 from typing import Callable, Type
 from ..core.criteria import *
+from ..core.ratio import as_fraction
 from einops import rearrange
 
 # %% auto #0
@@ -15,7 +17,7 @@ __all__ = ['Sparsifier']
 
 # %% ../../nbs/sparse/sparsifier.ipynb #c15c6bb1
 class Sparsifier():
-    "Class providing sparsifying capabilities"
+    "Class providing sparsifying capabilities. `sparsity` is a fraction in [0, 1] (0.4 = 40%)"
     def __init__(self, 
                  model: nn.Module,                        # The model to sparsify
                  granularity: str,                        # Granularity of sparsification (e.g., 'weight', 'filter')
@@ -53,42 +55,31 @@ class Sparsifier():
                 yield name, m
 
     def _to_sparsity_dict(self, 
-                          sparsity: float | dict  # Sparsity value or per-layer dict
+                          sparsity: float | dict  # Sparsity fraction or per-layer dict
     ) -> dict:
-        "Convert any sparsity input to a {module: sparsity} dict"
+        "Convert any sparsity input to a {module: fraction} dict"
+        if not isinstance(sparsity, dict):
+            sp = as_fraction(sparsity, 'sparsity')
+            return {m: sp for m in self._iter_layers()}
+
         name_to_module = dict(self.model.named_modules())
-        
-        # Float: apply same sparsity to all layers
-        if isinstance(sparsity, (int, float)):
-            if not (0 <= sparsity <= 100):
-                raise ValueError(f"sparsity must be in range [0, 100], got {sparsity}")
-            return {m: sparsity for m in self._iter_layers()}
-        
-        # Dict: resolve names to modules
-        if isinstance(sparsity, dict):
-            resolved = {}
-            for key, sp in sparsity.items():
-                if not (0 <= sp <= 100):
-                    raise ValueError(f"sparsity must be in range [0, 100], got {sp}")
-                if isinstance(key, str):
-                    if key in name_to_module:
-                        resolved[name_to_module[key]] = sp
-                    else:
-                        print(f"Warning: Layer '{key}' not found in model, skipping")
-                elif isinstance(key, nn.Module):
-                    resolved[key] = sp
-            return resolved
-        
-        raise TypeError(f"sparsity must be float or dict, got {type(sparsity)}")
+        resolved = {}
+        for key, sp in sparsity.items():
+            if isinstance(key, str):
+                sp = as_fraction(sp, 'sparsity', layer=key)
+                if key in name_to_module: resolved[name_to_module[key]] = sp
+                else: print(f"Warning: Layer '{key}' not found in model, skipping")
+            elif isinstance(key, nn.Module):
+                resolved[key] = as_fraction(sp, 'sparsity', layer=key.__class__.__name__)
+        return resolved
 
     def sparsify_layer(self, 
-                       m: nn.Module,              # The layer to sparsify
-                       sparsity: float,           # Target sparsity level (percentage)
+                       m: nn.Module,                # The layer to sparsify
+                       sparsity: float,             # Target sparsity, a fraction in [0, 1] (0.4 = 40%)
                        round_to: int | None = None  # Round to a multiple of this value
     ) -> None:
         "Apply sparsification to a single layer"
-        if not (0 <= sparsity <= 100):
-            raise ValueError(f"sparsity must be in range [0, 100], got {sparsity}")
+        sparsity  = as_fraction(sparsity, 'sparsity')
         scores    = self._compute_scores(m, sparsity)
         threshold = self._compute_threshold(scores, sparsity, round_to)
         mask      = self._compute_mask(scores, threshold)
@@ -97,20 +88,17 @@ class Sparsifier():
         self.criteria.update_weights(m)
 
     def sparsify_model(self, 
-                       sparsity: float | dict,        # Target sparsity level or per-layer dict
+                       sparsity: float | dict,        # Target sparsity, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict
                        round_to: int | None = None    # Round to a multiple of this value
     ) -> None:
         "Apply sparsification to all matching layers in the model"
         self._reset_threshold()
         
-        # Validate context for non-uniform sparsity
         if isinstance(sparsity, dict) and self.context == 'global':
             raise ValueError("Dict-based sparsity requires 'local' context")
         
-        # Convert to unified dict format
         sparsity_map = self._to_sparsity_dict(sparsity)
         
-        # Single iteration loop for all cases
         mods = list(self.model.modules())
         for name, m in self._iter_named_layers():
             if m not in sparsity_map:
@@ -161,11 +149,11 @@ class Sparsifier():
             if isinstance(m, nn.modules.batchnorm._BatchNorm): m.reset_parameters()
                 
     def _save_weights(self) -> None:
-        "Save initial weights of the model"
+        "Save initial weights of the model, detached so the model stays copyable"
         for m in self._iter_layers('has_weight'):
-            m.register_buffer("_init_weights", m.weight.clone())
+            m.register_buffer("_init_weights", m.weight.detach().clone())
             bias = getattr(m, 'bias', None)
-            if true(bias): m.register_buffer("_init_biases", bias.clone())
+            if true(bias): m.register_buffer("_init_biases", bias.detach().clone())
                     
     def save_model(self, 
                   path: str,                            # Path to save the model
@@ -207,25 +195,18 @@ class Sparsifier():
         k = max(1, int(fraction * scores.numel()))
         return scores.kthvalue(k).values
 
-    def _compute_scores(self, 
-                       m: nn.Module,   # Module to compute scores for
-                       sparsity: float # Target sparsity level
-    ) -> torch.Tensor:
+    def _compute_scores(self, m: nn.Module, sparsity: float) -> torch.Tensor:
         "Compute importance scores for weights based on criteria"
         return self.criteria(m, self.granularity)
-                
-    def _compute_threshold(self, 
-                          scores: torch.Tensor,  # Importance scores
-                          sparsity: float,       # Target sparsity level
-                          round_to: int | None   # Rounding value
-    ) -> torch.Tensor:
+
+    def _compute_threshold(self, scores: torch.Tensor, sparsity: float, round_to: int | None) -> torch.Tensor:
         "Compute threshold for pruning, with optional rounding"
         if self.context == 'global':
             if self.threshold is None: 
                 global_scores = torch.cat([self.criteria(m, self.granularity).view(-1) for m in self._iter_layers()])
-                self.threshold = self._kth_value(global_scores.view(-1), sparsity / 100)
+                self.threshold = self._kth_value(global_scores.view(-1), sparsity)
         elif self.context == 'local': 
-            self.threshold = self._kth_value(scores.view(-1), sparsity / 100)
+            self.threshold = self._kth_value(scores.view(-1), sparsity)
         else: 
             raise ValueError(f'Invalid context: {self.context}. Must be "global" or "local"')
             

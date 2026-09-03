@@ -16,6 +16,7 @@ from fastcore.basics import store_attr
 from ..sparse.all import Sparsifier
 from ..prune.all import Pruner
 from ..core.all import large_final, Criteria, Granularities
+from ..core.ratio import as_fraction
 
 # %% auto #0
 __all__ = ['LayerSensitivity', 'SensitivityResult', 'SensitivityAnalyzer', 'analyze_sensitivity']
@@ -43,7 +44,7 @@ class LayerSensitivity:
 class SensitivityResult:
     """Structured result from sensitivity analysis."""
     compression_type: str                   # "sparsity", "pruning", "quantization"
-    compression_level: float                # e.g., 50 for 50% sparsity
+    compression_level: float                # fraction for sparsity/pruning (0.5 = 50%), bit width for quantization
     baseline_metric: float                  # overall baseline metric
     layers: list[LayerSensitivity]          # per-layer results
     metric_name: str = "accuracy"           # name of the metric
@@ -63,6 +64,12 @@ class SensitivityResult:
             "higher_is_better": self.higher_is_better,
             "layers": [l.as_dict() for l in self.layers],
         }
+
+    def _level_str(self) -> str:
+        """The compression level as displayed: a percentage, or a bit width for quantization."""
+        if self.compression_type.startswith("quantization"):
+            return f"{int(self.compression_level)} bits"
+        return f"{self.compression_level:.2%}"
     
     def top(
         self,
@@ -86,7 +93,7 @@ class SensitivityResult:
     ) -> None:
         """Print a formatted summary of sensitivity analysis."""
         print(f"{'═' * 60}")
-        print(f"Sensitivity Analysis: {self.compression_type} @ {self.compression_level}%")
+        print(f"Sensitivity Analysis: {self.compression_type} @ {self._level_str()}")
         print(f"{'═' * 60}")
         print(f"  Baseline {self.metric_name}: {self.baseline_metric:.4f}")
         print(f"  Layers analyzed: {len(self.layers)}")
@@ -124,29 +131,28 @@ class SensitivityResult:
     
     def to_layer_targets(
         self,
-        model: nn.Module,          # model (used for parameter counts)
-        target_pct: float = 50,    # target mean compression percentage
-        min_pct: float = 0,        # minimum compression for any layer
-        max_pct: float = 90,       # maximum compression for any layer
-        gamma: float = 1.0,        # exponent for sensitivity scaling (higher = more differentiation)
+        model: nn.Module,        # model (used for parameter counts)
+        target: float = 0.5,     # target mean compression, a fraction in [0, 1] (0.4 = 40%)
+        min_ratio: float = 0.,   # minimum compression for any layer
+        max_ratio: float = 0.9,  # maximum compression for any layer
+        gamma: float = 1.0,      # exponent for sensitivity scaling (higher = more differentiation)
     ) -> dict[str, float]:
-        """Convert sensitivity to non-uniform per-layer compression targets.
+        """Convert sensitivity to non-uniform per-layer compression targets, as fractions.
         
         High sensitivity layers get lower compression, robust layers get higher.
-        Uses parameter-weighted optimization to hit target_pct exactly.
+        Uses parameter-weighted optimization to hit `target` exactly.
 
         Coupled layers (same `group_id`) are optimized as a SINGLE knob — they
         physically share one pruning ratio — then the group's target is expanded
         back to every member, so the returned dict stays per-layer. Layers that
-        are not prunable receive `min_pct`.
+        are not prunable receive `min_ratio`.
         """
         if not self.layers:
             return {}
         
-        # Convert to fractions
-        target = target_pct / 100.0
-        smin = min_pct / 100.0
-        smax = max_pct / 100.0
+        target = as_fraction(target, 'target')
+        smin = as_fraction(min_ratio, 'min_ratio')
+        smax = as_fraction(max_ratio, 'max_ratio')
 
         # Collapse to one entry per dependency group (a singleton group per layer when
         # group_id is None, e.g. sparsity/quant). This stops a coupled group of N layers
@@ -161,8 +167,8 @@ class SensitivityResult:
             g["params"] += float(l.params)
             g["delta"] = max(g["delta"], max(0.0, l.delta))  # delta is shared within a group
 
-        # Not-prunable layers are protected at min_pct and kept out of the optimization
-        targets: dict[str, float] = {l.name: round(float(min_pct), 2) for l in not_prunable}
+        # Not-prunable layers are protected at min_ratio and kept out of the optimization
+        targets: dict[str, float] = {l.name: round(smin, 4) for l in not_prunable}
         if not groups:
             return targets
 
@@ -172,7 +178,7 @@ class SensitivityResult:
 
         if weights.sum() == 0:
             for names in group_names:
-                for n in names: targets[n] = target_pct
+                for n in names: targets[n] = round(target, 4)
             return targets
         
         # Normalize sensitivity and invert (high sensitivity -> low compression)
@@ -210,7 +216,7 @@ class SensitivityResult:
         # Expand each group's target back to all its member layers (they share the ratio)
         for names, s in zip(group_names, final_s):
             for n in names:
-                targets[n] = round(s * 100, 2)
+                targets[n] = round(float(s), 4)
         return targets
     
     def plot(
@@ -232,7 +238,7 @@ class SensitivityResult:
         plt.axhline(0, color='gray', linewidth=1.2, linestyle='--')
         plt.xticks(range(len(names)), names, rotation=60, ha='right')
         plt.ylabel(f"{self.metric_name} drop (Δ)")
-        plt.title(f"Layer Sensitivity to {self.compression_type} @ {self.compression_level}%", 
+        plt.title(f"Layer Sensitivity to {self.compression_type} @ {self._level_str()}", 
                   pad=12, weight='bold')
         plt.grid(axis='y', linestyle=':', alpha=0.6)
         plt.tight_layout()
@@ -244,6 +250,7 @@ class SensitivityAnalyzer:
     
     Uses fasterai's Sparsifier for sparsity analysis and Pruner for structural pruning.
     Supports sparsity (weight zeroing), pruning (structural), and quantization.
+    `level` is a fraction in [0, 1] (0.5 = 50%) for sparsity and pruning, a bit width for quantization.
     """
     
     VALID_COMPRESSIONS = frozenset({"sparsity", "pruning", "quantization"})
@@ -321,7 +328,7 @@ class SensitivityAnalyzer:
     def _apply_sparsity(
         self,
         module: nn.Module,  # layer to sparsify
-        level: float,       # sparsity percentage (0-100)
+        level: float,       # sparsity fraction in [0, 1]
     ) -> None:
         """Apply sparsity using fasterai Sparsifier."""
         self._sparsifier.sparsify_layer(module, level)
@@ -423,7 +430,7 @@ class SensitivityAnalyzer:
     def _apply_structural_pruning(
         self, 
         target_name: str,   # layer to prune — applied EXACTLY as a real per-layer dict prune
-        level: float,       # pruning ratio (0-100)
+        level: float,       # pruning ratio, a fraction in [0, 1]
     ) -> tuple[nn.Module, bool]:
         """Prune the target layer on a fresh model copy exactly as a real per-layer prune would.
 
@@ -608,7 +615,7 @@ class SensitivityAnalyzer:
     def analyze(
         self,
         compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",  # compression type
-        level: float = 50,                    # compression level (% for sparsity/pruning, bits for quant)
+        level: float = 0.5,                   # compression level: a fraction in [0, 1] for sparsity/pruning, a bit width for quantization
         *,
         granularity: str = "weight",          # granularity for sparsity (fasterai granularities)
         layers: list[str] | None = None,      # specific layer names to analyze (None = all)
@@ -631,6 +638,10 @@ class SensitivityAnalyzer:
         """
         if compression not in self.VALID_COMPRESSIONS:
             raise ValueError(f"compression must be one of {self.VALID_COMPRESSIONS}")
+
+        if compression != "quantization":
+            level = as_fraction(level, 'level')
+        level_str = f"{int(level)} bits" if compression == "quantization" else f"{level:.2%}"
         
         self.model.eval()
         
@@ -669,8 +680,7 @@ class SensitivityAnalyzer:
             mode_info = f" (structural group-sensitivity, criteria={self.criteria.f.__name__})"
         
         if verbose:
-            unit = 'bits' if compression == 'quantization' else '%'
-            print(f"Analyzing {len(all_layers)} layers for {compression} @ {level}{unit}{mode_info}")
+            print(f"Analyzing {len(all_layers)} layers for {compression} @ {level_str}{mode_info}")
         
         results: list[LayerSensitivity] = []
         
@@ -769,17 +779,17 @@ class SensitivityAnalyzer:
     def sweep(
         self,
         compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",  # compression type
-        levels: list[float] | None = None,  # compression levels to test (default: [25, 50, 75])
+        levels: list[float] | None = None,  # compression levels to test (default: [0.25, 0.5, 0.75])
         **kwargs,
     ) -> list[SensitivityResult]:
         """Run sensitivity analysis at multiple compression levels."""
         if levels is None:
-            levels = [25, 50, 75]
+            levels = [0.25, 0.5, 0.75]
         results = []
         for level in levels:
+            level_str = f"{int(level)} bits" if compression == "quantization" else f"{level:.2%}"
             print(f"\n{'='*60}")
-            unit = 'bits' if compression == 'quantization' else '%'
-            print(f"Sweep: {compression} @ {level}{unit}")
+            print(f"Sweep: {compression} @ {level_str}")
             print(f"{'='*60}")
             result = self.analyze(compression, level, **kwargs)
             results.append(result)
@@ -791,7 +801,7 @@ def analyze_sensitivity(
     sample: torch.Tensor,                # example input tensor
     eval_fn: Callable[[nn.Module], float],  # evaluation function returning metric
     compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",  # compression type
-    level: float = 50,                   # compression level (% for sparsity/pruning, bits for quant)
+    level: float = 0.5,                  # compression level: a fraction in [0, 1] for sparsity/pruning, a bit width for quantization
     *,
     criteria: Criteria = large_final,    # fasterai criteria for importance scoring
     higher_is_better: bool = True,       # whether higher metric values are better
