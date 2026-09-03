@@ -66,7 +66,6 @@ website:
         - section: Distill
           contents:
           - tutorials/distill/distill_callback.ipynb
-          - tutorials/distill/losses_guide.ipynb
         - section: Regularize
           contents:
           - tutorials/regularize/regularize_callback.ipynb
@@ -79,6 +78,7 @@ website:
           contents:
           - tutorials/misc/bn_folding.ipynb
           - tutorials/misc/fc_decomposer.ipynb
+          - tutorials/misc/conv_decomposer.ipynb
         - section: Export
           contents:
           - tutorials/export/onnx_export.ipynb
