@@ -1,0 +1,5 @@
+# CI-only pins (pip reads this through PIP_CONSTRAINT in workflows/test.yaml).
+# plum-dispatch 2.10.0 makes Function.__doc__ read-only, which breaks fastcore's add_docs while
+# fastai imports ('Function' object attribute '__doc__' is read-only); drop the line once a
+# fastcore/fastai release imports on plum-dispatch 2.10.
+plum-dispatch<2.10
