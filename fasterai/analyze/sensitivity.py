@@ -10,6 +10,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Callable, Any, Literal
 from collections import OrderedDict
 from contextlib import contextmanager
+from functools import partial
 from fastcore.basics import store_attr
 
 # fasterai imports (relative within fasterai package)
@@ -454,128 +455,50 @@ class SensitivityAnalyzer:
     
     # ─── Quantization helpers ────────────────────────────────────────────────────
     
-    def _compute_qparams_symmetric(
+    def _fake_quantize(
         self,
-        tensor: torch.Tensor,       # tensor to compute qparams for
-        bits: int = 8,              # quantization bits
-        per_channel: bool = False,  # per-channel or per-tensor
-        channel_axis: int = 0,      # axis for per-channel quantization
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute scale and zero_point for symmetric quantization."""
-        qmin, qmax = -(2 ** (bits - 1)), 2 ** (bits - 1) - 1
-        
-        if per_channel and tensor.dim() > 1:
-            dims = list(range(tensor.dim()))
-            dims.remove(channel_axis)
-            amax = tensor.abs()
-            for dim in sorted(dims, reverse=True):
-                amax = amax.max(dim=dim).values
-            scale = amax / qmax
-            scale = torch.clamp(scale, min=1e-8)
+        t: torch.Tensor,
+        bits: int = 8,
+        symmetric: bool = True,
+        per_channel: bool = False,
+        axis: int = 0,
+    ) -> torch.Tensor:
+        """Fake-quantize a tensor: symmetric or asymmetric, per-channel along `axis` or per-tensor."""
+        qmin, qmax = (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1) if symmetric else (0, 2 ** bits - 1)
+        per_channel = per_channel and t.dim() > 1
+        dims = [d for d in range(t.dim()) if d != axis] if per_channel else list(range(t.dim()))
+
+        if symmetric:
+            scale = torch.clamp(t.abs().amax(dim=dims) / qmax, min=1e-8)
             zero_point = torch.zeros_like(scale, dtype=torch.int32)
         else:
-            amax = tensor.abs().max()
-            scale = torch.tensor([max(amax.item() / qmax, 1e-8)], device=tensor.device)
-            zero_point = torch.tensor([0], dtype=torch.int32, device=tensor.device)
-        
-        return scale, zero_point
-    
-    def _compute_qparams_asymmetric(
-        self,
-        tensor: torch.Tensor,       # tensor to compute qparams for
-        bits: int = 8,              # quantization bits
-        per_channel: bool = False,  # per-channel or per-tensor
-        channel_axis: int = 0,      # axis for per-channel quantization
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute scale and zero_point for asymmetric quantization."""
-        qmin, qmax = 0, 2 ** bits - 1
-        
-        if per_channel and tensor.dim() > 1:
-            dims = list(range(tensor.dim()))
-            dims.remove(channel_axis)
-            t_min, t_max = tensor.clone(), tensor.clone()
-            for dim in sorted(dims, reverse=True):
-                t_min = t_min.min(dim=dim).values
-                t_max = t_max.max(dim=dim).values
-        else:
-            t_min, t_max = tensor.min(), tensor.max()
-        
-        scale = (t_max - t_min) / (qmax - qmin)
-        scale = torch.clamp(scale, min=1e-8)
-        zero_point = torch.clamp(torch.round(-t_min / scale), qmin, qmax).to(torch.int32)
-        
-        if not per_channel or tensor.dim() <= 1:
-            scale = scale.view(1) if scale.dim() == 0 else scale
-            zero_point = zero_point.view(1) if zero_point.dim() == 0 else zero_point
-        
-        return scale, zero_point
-    
-    def _fake_quantize_per_channel(
-        self,
-        tensor: torch.Tensor,      # tensor to quantize
-        bits: int = 8,             # quantization bits
-        symmetric: bool = True,    # symmetric or asymmetric
-        channel_axis: int = 0,     # axis for per-channel quantization
-    ) -> torch.Tensor:
-        """Apply fake quantization (per-channel)."""
-        qmin = -(2 ** (bits - 1)) if symmetric else 0
-        qmax = (2 ** (bits - 1)) - 1 if symmetric else (2 ** bits) - 1
-        
-        if symmetric:
-            scale, zero_point = self._compute_qparams_symmetric(
-                tensor, bits, per_channel=True, channel_axis=channel_axis
-            )
-        else:
-            scale, zero_point = self._compute_qparams_asymmetric(
-                tensor, bits, per_channel=True, channel_axis=channel_axis
-            )
-        
-        return torch.fake_quantize_per_channel_affine(
-            tensor, scale, zero_point, channel_axis, qmin, qmax
-        )
-    
-    def _fake_quantize_per_tensor(
-        self,
-        tensor: torch.Tensor,    # tensor to quantize
-        bits: int = 8,           # quantization bits
-        symmetric: bool = True,  # symmetric or asymmetric
-    ) -> torch.Tensor:
-        """Apply fake quantization (per-tensor)."""
-        qmin = -(2 ** (bits - 1)) if symmetric else 0
-        qmax = (2 ** (bits - 1)) - 1 if symmetric else (2 ** bits) - 1
-        
-        if symmetric:
-            scale, zero_point = self._compute_qparams_symmetric(tensor, bits, per_channel=False)
-        else:
-            scale, zero_point = self._compute_qparams_asymmetric(tensor, bits, per_channel=False)
-        
-        return torch.fake_quantize_per_tensor_affine(
-            tensor, scale.item(), int(zero_point.item()), qmin, qmax
-        )
-    
+            t_min, t_max = t.amin(dim=dims), t.amax(dim=dims)
+            scale = torch.clamp((t_max - t_min) / (qmax - qmin), min=1e-8)
+            zero_point = torch.clamp(torch.round(-t_min / scale), qmin, qmax).to(torch.int32)
+
+        if per_channel:
+            return torch.fake_quantize_per_channel_affine(t, scale, zero_point, axis, qmin, qmax)
+        return torch.fake_quantize_per_tensor_affine(t, scale.item(), int(zero_point.item()), qmin, qmax)
+
     def _apply_weight_quantization(
-        self, 
-        module: nn.Module,       # layer to quantize
-        bits: int = 8,           # quantization bits
-        per_channel: bool = True,  # per-channel or per-tensor
+        self,
+        module: nn.Module,
+        bits: int = 8,
+        per_channel: bool = True,
     ) -> None:
-        """Apply weight quantization using fake_quantize."""
-        weight = module.weight.data
-        if per_channel and weight.dim() > 1:
-            quantized = self._fake_quantize_per_channel(weight, bits, symmetric=True, channel_axis=0)
-        else:
-            quantized = self._fake_quantize_per_tensor(weight, bits, symmetric=True)
-        weight.copy_(quantized)
-    
+        """Fake-quantize a layer's weights in place."""
+        w = module.weight.data
+        w.copy_(self._fake_quantize(w, bits, symmetric=True, per_channel=per_channel))
+
     def _create_activation_quantize_hook(
         self,
-        layer_name: str,  # layer name for config lookup
-        bits: int = 8,    # quantization bits
+        layer_name: str,
+        bits: int = 8,
     ):
         """Create a forward hook that quantizes activations."""
         def hook(module, input, output):
             if self._activation_quantize_config.get(layer_name, False):
-                return self._fake_quantize_per_tensor(output, bits, symmetric=False)
+                return self._fake_quantize(output, bits, symmetric=False)
             return output
         return hook
     
@@ -598,8 +521,94 @@ class SensitivityAnalyzer:
         self._activation_hooks = []
         self._activation_quantize_config = {}
     
+    # ─── Per-layer probes ────────────────────────────────────────────────────────
+
+    @contextmanager
+    def _probe_context(
+        self,
+        compression: str,
+        granularity: str,
+        bits: int,
+        quant_activations: bool,
+    ):
+        """Install what the probes need, and tear it down even if `eval_fn` raises."""
+        if compression == "sparsity":
+            self._init_sparsifier(granularity)
+        if compression == "quantization" and quant_activations:
+            self._setup_activation_hooks(bits)
+        try:
+            yield
+        finally:
+            if compression == "sparsity":
+                self._cleanup_sparsifier()
+            if compression == "quantization" and quant_activations:
+                self._remove_activation_hooks()
+
+    def _probe_sparsity(
+        self,
+        name: str,
+        module: nn.Module,
+        level: float,
+    ) -> tuple[float, bool]:
+        """Sparsify one layer, measure, restore."""
+        self._sparsifier.sparsify_layer(module, level)
+        metric = self.eval_fn(self.model)
+        self._restore_layer(module)
+        return metric, True
+
+    def _probe_pruning(
+        self,
+        name: str,
+        module: nn.Module,
+        level: float,
+        *,
+        baseline: float,
+        gids: dict[str, int],
+        cache: dict[int, tuple[float, bool]],
+    ) -> tuple[float, bool]:
+        """Prune one dependency group on a fresh copy, measured once and shared by its members."""
+        gid = gids.get(name)
+        if gid is None:
+            return baseline, False  # ignored layer (output Linear / attention)
+        if gid in cache:
+            return cache[gid]
+        pruned_model, prunable = self._apply_structural_pruning(name, level)
+        metric = self.eval_fn(pruned_model) if prunable else baseline
+        del pruned_model
+        cache[gid] = (metric, prunable)
+        return metric, prunable
+
+    def _probe_quantization(
+        self,
+        name: str,
+        module: nn.Module,
+        level: float,
+        *,
+        bits: int,
+        per_channel: bool,
+        activations: bool,
+    ) -> tuple[float, bool]:
+        """Fake-quantize one layer (weights, optionally activations), measure, restore."""
+        saved_weight = module.weight.data.clone()
+        saved_bias = module.bias.data.clone() if module.bias is not None else None
+        self._apply_weight_quantization(module, bits, per_channel=per_channel)
+        if activations: self._activation_quantize_config[name] = True
+        metric = self.eval_fn(self.model)
+        if activations: self._activation_quantize_config[name] = False
+        module.weight.data.copy_(saved_weight)
+        if saved_bias is not None: module.bias.data.copy_(saved_bias)
+        return metric, True
+
     # ─── Main analysis method ────────────────────────────────────────────────────
-    
+
+    def _mode_info(self, compression: str, granularity: str, quant_per_channel: bool, quant_activations: bool) -> str:
+        """The mode suffix of the progress banner."""
+        if compression == "quantization":
+            return (f" (per-{'channel' if quant_per_channel else 'tensor'}"
+                    f", {'weights+activations' if quant_activations else 'weights only'})")
+        detail = "structural group-sensitivity" if compression == "pruning" else f"granularity={granularity}"
+        return f" ({detail}, criteria={self.criteria.f.__name__})"
+
     def analyze(
         self,
         compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",  # compression type
@@ -621,7 +630,7 @@ class SensitivityAnalyzer:
         cannot be pruned independently (output Linear, attention) are marked `prunable=False`.
 
         Pass `layer_types` to restrict the analysis to specific module types — a single type or
-        a tuple, e.g. `layer_types=nn.Conv2d` analyses only convolutions and skips the
+        a tuple, e.g. `layer_types=nn.Conv2d` analyzes only convolutions and skips the
         classifier `Linear`.
         """
         if compression not in self.VALID_COMPRESSIONS:
@@ -630,16 +639,10 @@ class SensitivityAnalyzer:
         if compression != "quantization":
             level = as_fraction(level, 'level')
         level_str = f"{int(level)} bits" if compression == "quantization" else f"{level:.2%}"
-        
+        bits = int(level) if level > 1 else 8
+
         self.model.eval()
-        
-        if compression == "sparsity":
-            self._init_sparsifier(granularity)
-        
-        if compression == "quantization" and quant_activations:
-            bits = int(level) if level > 1 else 8
-            self._setup_activation_hooks(bits)
-        
+
         if verbose:
             print(f"Computing baseline {self.metric_name}...", end=" ", flush=True)
         baseline = self.eval_fn(self.model)
@@ -650,105 +653,50 @@ class SensitivityAnalyzer:
         if layers is not None:
             all_layers = [(n, m) for n, m in all_layers if n in layers]
 
-        # Pruning: precompute dependency groups once so coupled layers can share a group_id
-        # and each coupled set is only pruned/evaluated a single time (deduped by group id).
-        group_gid: dict[str, int] = {}
-        group_members: dict[int, list[str]] = {}
-        group_cache: dict[int, tuple[float, bool]] = {}
+        # Dependency groups are built once: coupled layers share a group_id, hence one prune per group
+        group_gid, group_members = {}, {}
         if compression == "pruning":
             group_gid, group_members = self._build_dependency_groups(self.model)
         
-        mode_info = ""
-        if compression == "quantization":
-            mode_info = f" (per-{'channel' if quant_per_channel else 'tensor'}"
-            mode_info += f", {'weights+activations' if quant_activations else 'weights only'})"
-        elif compression == "sparsity":
-            mode_info = f" (granularity={granularity}, criteria={self.criteria.f.__name__})"
-        elif compression == "pruning":
-            mode_info = f" (structural group-sensitivity, criteria={self.criteria.f.__name__})"
-        
+        mode_info = self._mode_info(compression, granularity, quant_per_channel, quant_activations)
         if verbose:
             print(f"Analyzing {len(all_layers)} layers for {compression} @ {level_str}{mode_info}")
         
+        probe = {"sparsity": self._probe_sparsity,
+                 "pruning": partial(self._probe_pruning, baseline=baseline, gids=group_gid, cache={}),
+                 "quantization": partial(self._probe_quantization, bits=bits,
+                                         per_channel=quant_per_channel, activations=quant_activations)}[compression]
         results: list[LayerSensitivity] = []
-        
-        for i, (name, module) in enumerate(all_layers):
-            if verbose:
-                print(f"  [{i+1}/{len(all_layers)}] {name}...", end=" ", flush=True)
 
-            prunable = True
-            gid = group_gid.get(name)  # None for sparsity/quant and for ignored (output/attention) layers
-            if compression == "sparsity":
-                self._sparsifier.sparsify_layer(module, level)
-                compressed_metric = self.eval_fn(self.model)
-                self._restore_layer(module)
-                param_count = module.weight.numel()
-                
-            elif compression == "pruning":
-                if gid is None:
-                    # ignored layer (output Linear / attention) — not independently prunable
-                    compressed_metric, prunable = baseline, False
-                elif gid in group_cache:
-                    compressed_metric, prunable = group_cache[gid]  # coupled member: reuse the group's prune
-                else:
-                    pruned_model, prunable = self._apply_structural_pruning(name, level)
-                    compressed_metric = self.eval_fn(pruned_model) if prunable else baseline
-                    del pruned_model
-                    group_cache[gid] = (compressed_metric, prunable)
-                param_count = module.weight.numel()
-                
-            elif compression == "quantization":
-                saved_weight = module.weight.data.clone()
-                saved_bias = module.bias.data.clone() if module.bias is not None else None
-                
-                bits = int(level) if level > 1 else 8
-                self._apply_weight_quantization(module, bits, per_channel=quant_per_channel)
-                
-                if quant_activations:
-                    self._activation_quantize_config[name] = True
-                
-                compressed_metric = self.eval_fn(self.model)
-                
-                if quant_activations:
-                    self._activation_quantize_config[name] = False
-                
-                module.weight.data.copy_(saved_weight)
-                if saved_bias is not None:
-                    module.bias.data.copy_(saved_bias)
-                param_count = module.weight.numel()
-            
-            if self.higher_is_better:
-                delta = baseline - compressed_metric
-            else:
-                delta = compressed_metric - baseline
-            
-            if verbose:
-                sign = "+" if delta > 0 else ""
-                tag = "" if prunable else " (not prunable)"
-                print(f"Δ={sign}{delta:.4f}{tag}")
-            
-            results.append(LayerSensitivity(
-                name=name,
-                layer_type=module.__class__.__name__,
-                params=param_count,
-                baseline_metric=baseline,
-                compressed_metric=compressed_metric,
-                delta=delta,
-                group_id=gid,
-                group_members=group_members.get(gid, []),
-                prunable=prunable,
-            ))
-        
-        if compression == "sparsity":
-            self._cleanup_sparsifier()
-        if compression == "quantization" and quant_activations:
-            self._remove_activation_hooks()
-        
+        with self._probe_context(compression, granularity, bits, quant_activations):
+            for i, (name, module) in enumerate(all_layers):
+                if verbose:
+                    print(f"  [{i+1}/{len(all_layers)}] {name}...", end=" ", flush=True)
+
+                compressed_metric, prunable = probe(name, module, level)
+                gid = group_gid.get(name)  # None for sparsity/quant and for ignored layers
+                delta = baseline - compressed_metric if self.higher_is_better else compressed_metric - baseline
+
+                if verbose:
+                    sign = "+" if delta > 0 else ""
+                    tag = "" if prunable else " (not prunable)"
+                    print(f"Δ={sign}{delta:.4f}{tag}")
+
+                results.append(LayerSensitivity(
+                    name=name,
+                    layer_type=module.__class__.__name__,
+                    params=module.weight.numel(),
+                    baseline_metric=baseline,
+                    compressed_metric=compressed_metric,
+                    delta=delta,
+                    group_id=gid,
+                    group_members=group_members.get(gid, []),
+                    prunable=prunable,
+                ))
+
         compression_desc = compression
         if compression == "quantization":
-            compression_desc = f"quantization-{int(level) if level > 1 else 8}bit"
-            if quant_activations:
-                compression_desc += "+act"
+            compression_desc = f"quantization-{bits}bit" + ("+act" if quant_activations else "")
         
         self._results = SensitivityResult(
             compression_type=compression_desc,
@@ -760,7 +708,7 @@ class SensitivityAnalyzer:
         )
         
         if verbose:
-            print(f"✓ Analysis complete")
+            print("✓ Analysis complete")
         
         return self._results
     
