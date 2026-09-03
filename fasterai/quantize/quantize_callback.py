@@ -35,10 +35,8 @@ def _check_static_batch(
     dls,  # The `DataLoaders` the fit will iterate
 ) -> None:
     "Refuse dataloaders that do not yield a single batch size, which is all an exported graph runs"
-    # `torch.export` specialises the captured graph to ONE batch size. fastai keeps the validation
-    # loader's shorter last batch, and that batch would hit a shape guard in the middle of the fit
-    # instead of here — after the training it invalidates.
-    sizes = sorted(set().union(*(_batch_sizes(getattr(dls, name, None)) for name in ('train', 'valid'))))
+    # Refused here, not mid-fit, where the shorter last batch would invalidate the training first.
+    sizes = sorted({size for name in ('train', 'valid') for size in _batch_sizes(getattr(dls, name, None))})
     if len(sizes) > 1:
         raise ValueError(
             f"pt2e QAT captures the model at one batch size, but these dataloaders yield {sizes}: a "
@@ -89,10 +87,7 @@ class QuantizeCallback(Callback):
     def _start_pt2e(self, example_input: torch.Tensor) -> None:
         "Capture the model with torch.export and insert the fake-quantize modules QAT trains through"
         if self.verbose: print("pt2e: capturing the model with torch.export")
-        # No fallback: `_prepare_pt2e` raises when the capture fails, naming the operation it failed on.
-        # Training the unprepared model instead would report a QAT run that never happened.
-        # `verbose` goes through: the placement pass reports what it cleared from inside `_prepare_pt2e`,
-        # and a QAT run is exactly where a caller cannot see that any other way.
+        # No fallback: training the unprepared model would report a QAT run that never happened.
         prepared = _prepare_pt2e(self.learn.model, example_input, self.quantizer.spec,
                                  verbose=self.verbose)
         self._swap_model(_bind_exported_modes(prepared))
@@ -136,8 +131,6 @@ class QuantizeCallback(Callback):
 
     def _install_quantized(self, quantized: nn.Module) -> None:
         "Make `quantized` the model, tagged with the precision that produced it"
-        # Same provenance as `Quantizer.quantize`: the spec travels with the model, so that an exporter
-        # can refuse a precision it cannot write instead of guessing what the graph holds.
         self.quantizer._tag(quantized, self.original_model)
         self.learn.quantized_model = quantized
         self.learn.model = quantized
@@ -149,21 +142,11 @@ class QuantizeCallback(Callback):
 
     def _rebind_opt(self) -> None:
         "Rebuild `learn.opt` on the model just installed, keeping the hypers and the per-parameter marks"
-        # `Learner.fit` builds the optimizer BEFORE `before_fit` runs, so it holds the parameters of the
-        # model as it was handed in. Preparation hands back a different module. Under torch 2.9.1 both
-        # flows happen to reuse the source parameter tensors, so the optimizer `fit` built still works —
-        # but that is a property of those passes, not a contract, and a preparation that allocates its
-        # own parameters (e.g. a `qconfig_mapping` using learnable fake-quant) would leave them
-        # untrained. Rebuilding here removes the dependency.
+        # `fit` builds the optimizer BEFORE `before_fit` runs, on the model as it was handed in.
         opt = getattr(self.learn, 'opt', None)
         if opt is None: return  # `fit` always builds one; `before_fit()` called on its own may not have
         hypers = [dict(h) for h in opt.hypers]  # the lr/wd `fit` was called with, and any schedule state
-        # fastai marks the parameters that must escape weight decay (and stay trainable when frozen) by
-        # WALKING the model for `nn.BatchNorm2d` instances and `.bias` attributes. A graph captured by
-        # torch.export holds neither, so rebuilding on it puts weight decay back on the batch-norm
-        # scales: measured on the tiny conv net of the tests, the eager optimizer marks
-        # ['0.bias', '1.bias', '1.weight', '5.bias'] and the rebuilt one only ['0.bias', '1.bias',
-        # '5.bias']. The tensors are the same objects, so the marks travel by identity.
+        # fastai marks the no-weight-decay params by walking for nn.BatchNorm2d/.bias, which a graph has none of
         marks = {id(p): {k: v for k, v in state.items() if k in _OPT_FLAGS}
                  for p, state in opt.state.items()}
         try:
@@ -185,7 +168,8 @@ class QuantizeCallback(Callback):
         for parameter in (p for group in self.learn.opt.param_lists for p in group):
             # a mark the old optimizer carried wins; a parameter it never held (a learnable fake-quant
             # scale, say) keeps what `create_opt` decided for it
-            if marks.get(id(parameter)): self.learn.opt.state[parameter].update(marks[id(parameter)])
+            mark = marks.get(id(parameter))
+            if mark: self.learn.opt.state[parameter].update(mark)
         if not hypers: return
         for i, group in enumerate(self.learn.opt.hypers):
             # `fit` gives every group the same lr and wd, so the first one is the right value to carry
