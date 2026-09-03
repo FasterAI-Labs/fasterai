@@ -6,12 +6,10 @@
 from __future__ import annotations
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from fastcore.basics import *
 from fastcore.imports import *
 from .granularity import *
-from typing import Callable, Any
-from enum import Enum, auto
+from typing import Callable
 
 # %% auto #0
 __all__ = ['EPS', 'random', 'large_final', 'squared_final', 'small_final', 'large_init', 'small_init', 'large_init_large_final',

@@ -6,13 +6,10 @@ __all__ = ['Pruner']
 # %% ../../nbs/prune/pruner.ipynb #e1b7a541
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch_pruning as tp
 from torch_pruning.pruner import function
 
-import pickle
-from itertools import cycle
-from fastcore.basics import store_attr, listify, true
+from fastcore.basics import store_attr
 from ..core.criteria import *
 from ..core.ratio import as_fraction
 from fastai.vision.all import *
@@ -37,7 +34,10 @@ class Pruner():
                  *args,
                  **kwargs                     # Passed to `tp.pruner.MetaPruner` (e.g. `default_pruning_ratio` for the layers a dict does not name)
     ):
+        if not any(p.requires_grad for p in model.parameters()):
+            raise ValueError("No parameter requires grad: call model.requires_grad_(True) before pruning.")
         store_attr()
+        self.example_inputs = example_inputs.as_subclass(torch.Tensor).clone().to(next(model.parameters()).device)  # a subclass breaks the dependency trace, the clone escapes inference mode
         self.num_heads = {}
         self._original_params = sum(p.numel() for p in model.parameters())
         if not self.ignored_layers: self.get_ignored_layers(self.model)
@@ -53,20 +53,16 @@ class Pruner():
             self.pruning_ratio = as_fraction(self.pruning_ratio, 'pruning_ratio', allow_zero=False)
             self.default_pruning_ratio = self.pruning_ratio
 
-        # Convert Schedule object to torch-pruning compatible function
         tp_schedule = self._to_tp_scheduler(self.schedule)
-
-        # Clone example_inputs to escape inference mode (torch-pruning needs autograd for tracing)
-        _example_inputs = self.example_inputs.clone().to(next(self.model.parameters()).device)
 
         self.pruner = tp.pruner.MetaPruner(
             self.model,
-            example_inputs=_example_inputs,
+            example_inputs=self.example_inputs,
             importance=self.group_importance,
             pruning_ratio=self.default_pruning_ratio,
             pruning_ratio_dict=self.pruning_ratio_dict,
             ignored_layers=self.ignored_layers,
-            global_pruning=True if self.context=='global' else False,
+            global_pruning=self.context == 'global',
             num_heads=self.num_heads,
             iterative_pruning_ratio_scheduler=tp_schedule,
             *args,

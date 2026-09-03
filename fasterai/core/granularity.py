@@ -4,10 +4,9 @@
 from __future__ import annotations
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from fastcore.basics import *
 from fastcore.imports import *
-from typing import Type, Any
+from typing import Type
 
 # %% auto #0
 __all__ = ['Granularities']

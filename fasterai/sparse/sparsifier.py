@@ -5,9 +5,8 @@ from __future__ import annotations
 import copy
 import torch
 import torch.nn as nn
-import pickle
 from fastcore.basics import store_attr, true
-from typing import Callable, Type
+from typing import Type
 from ..core.criteria import *
 from ..core.ratio import as_fraction
 from einops import rearrange
@@ -80,7 +79,7 @@ class Sparsifier():
     ) -> None:
         "Apply sparsification to a single layer"
         sparsity  = as_fraction(sparsity, 'sparsity')
-        scores    = self._compute_scores(m, sparsity)
+        scores    = self.criteria(m, self.granularity)
         threshold = self._compute_threshold(scores, sparsity, round_to)
         mask      = self._compute_mask(scores, threshold)
         m.register_buffer('_mask', mask)
@@ -194,10 +193,6 @@ class Sparsifier():
         "Find the value at a given fraction (like quantile, but no size limit)"
         k = max(1, int(fraction * scores.numel()))
         return scores.kthvalue(k).values
-
-    def _compute_scores(self, m: nn.Module, sparsity: float) -> torch.Tensor:
-        "Compute importance scores for weights based on criteria"
-        return self.criteria(m, self.granularity)
 
     def _compute_threshold(self, scores: torch.Tensor, sparsity: float, round_to: int | None) -> torch.Tensor:
         "Compute threshold for pruning, with optional rounding"

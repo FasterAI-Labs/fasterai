@@ -13,7 +13,6 @@ from torch.ao.quantization.quantize_fx import prepare_fx, prepare_qat_fx, conver
 from torch.ao.quantization.observer import MinMaxObserver, MovingAverageMinMaxObserver
 from torch.ao.quantization.fake_quantize import FakeQuantize
 from torch.quantization import quantize_dynamic
-from torch.ao.quantization.qconfig import default_dynamic_qconfig
 from torch.ao.quantization.quantization_mappings import get_default_static_quant_module_mappings
 from dataclasses import replace
 from typing import Any
@@ -688,21 +687,12 @@ class Quantizer:
             with self._quantized_engine():
                 if self.method == "static":
                     return prepare_fx(model, self.qconfig_mapping, example_inputs)
-                elif self.method == "dynamic":                
-                    self.qconfig_mapping.set_object_type(torch.nn.Linear, default_dynamic_qconfig)
-                    self.qconfig_mapping.set_object_type(torch.nn.LSTM, default_dynamic_qconfig)
-                    self.qconfig_mapping.set_object_type(torch.nn.GRU, default_dynamic_qconfig)
-                    self.qconfig_mapping.set_object_type(torch.nn.RNN, default_dynamic_qconfig)
-                    if self.custom_configs:
-                        for module_name, config in self.custom_configs.items():
-                            self.qconfig_mapping.set_module_name(module_name, config)
-                    return prepare_fx(model, self.qconfig_mapping, example_inputs)
                 elif self.method == "qat":
                     return prepare_qat_fx(model, self.qconfig_mapping, example_inputs)
                 else:
                     raise ValueError(f"Unknown quantization method: {self.method}")
         except Exception as e:
-            raise RuntimeError(f"Error preparing model for quantization: {e}")
+            raise RuntimeError(f"Error preparing model for quantization: {e}") from e
     
     def _calibrate_model(self, model, dataloader, max_samples=None, device='cpu'):
         "Calibrate the model on CPU (PyTorch quantization is CPU-only)."

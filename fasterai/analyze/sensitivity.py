@@ -49,10 +49,6 @@ class SensitivityResult:
     layers: list[LayerSensitivity]          # per-layer results
     metric_name: str = "accuracy"           # name of the metric
     higher_is_better: bool = True           # whether higher metric is better
-    _results: list[LayerSensitivity] = field(default=None, init=False, repr=False)  # for top() compatibility
-    
-    def __post_init__(self):
-        self._results = self.layers  # for compatibility with top() pattern
     
     def as_dict(self) -> dict[str, Any]:
         """Convert to flat dictionary."""
@@ -324,14 +320,6 @@ class SensitivityAnalyzer:
         if self._sparsifier is not None:
             self._sparsifier._clean_buffers()
             self._sparsifier = None
-    
-    def _apply_sparsity(
-        self,
-        module: nn.Module,  # layer to sparsify
-        level: float,       # sparsity fraction in [0, 1]
-    ) -> None:
-        """Apply sparsity using fasterai Sparsifier."""
-        self._sparsifier.sparsify_layer(module, level)
     
     def _restore_layer(
         self,
@@ -691,7 +679,7 @@ class SensitivityAnalyzer:
             prunable = True
             gid = group_gid.get(name)  # None for sparsity/quant and for ignored (output/attention) layers
             if compression == "sparsity":
-                self._apply_sparsity(module, level)
+                self._sparsifier.sparsify_layer(module, level)
                 compressed_metric = self.eval_fn(self.model)
                 self._restore_layer(module)
                 param_count = module.weight.numel()
