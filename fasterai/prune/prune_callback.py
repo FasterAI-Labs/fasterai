@@ -13,7 +13,6 @@ from ..core.schedule import *
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 # %% ../../nbs/prune/prune_callback.ipynb #50598138-7d55-4774-b711-114c1c42dce8
 class PruneCallback(Callback):

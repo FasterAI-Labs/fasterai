@@ -8,11 +8,10 @@ from .sparsifier import *
 from ..core.criteria import *
 from ..core.ratio import as_fraction
 from ..core.schedule import *
-from typing import Callable, Type
+from typing import Type
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 # %% auto #0
 __all__ = ['SparsifyCallback']
