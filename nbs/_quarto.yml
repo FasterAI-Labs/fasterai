@@ -74,6 +74,7 @@ website:
           contents:
           - tutorials/quantize/quantize_callback.ipynb
           - tutorials/quantize/deployable_export.ipynb
+          - tutorials/quantize/quantization_compared.ipynb
         - section: Misc
           contents:
           - tutorials/misc/bn_folding.ipynb
