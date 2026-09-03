@@ -11,6 +11,7 @@ import torch_pruning as tp
 from torch_pruning.pruner import function
 
 import pickle
+import numbers
 from itertools import cycle
 from fastcore.basics import store_attr, listify, true
 from ..core.criteria import *
@@ -20,29 +21,82 @@ from fastai.vision.all import *
 from torch_pruning.pruner.algorithms.scheduler import linear_scheduler
 from torch.fx import symbolic_trace
 
+# %% ../../nbs/prune/pruner.ipynb #9959a8ff
+def _check_pruning_ratio(
+    ratio,                       # Pruning ratio in percent (40 = 40% of channels/filters); 0 = skip this layer (per-layer dict values only)
+    layer: str | None = None,    # Layer name, when the ratio comes from a per-layer dict
+    name: str = 'pruning_ratio', # Parameter name to quote in the error message
+    allow_zero: bool = False     # Accept exactly 0 as "leave this layer alone" (per-layer dict values)
+) -> float:                      # The ratio as the 0-1 fraction torch-pruning expects
+    "Validate a percent pruning ratio and convert it to the 0-1 fraction used internally"
+    where = name + (f" for '{layer}'" if layer is not None else "")
+    if isinstance(ratio, bool) or not isinstance(ratio, numbers.Real):
+        raise TypeError(f"{where} must be a number in percent (40 = 40% of channels), got {ratio!r}")
+    # A per-layer target of 0% is an instruction ("leave this layer alone"), not a mistake
+    if allow_zero and ratio == 0: return 0.
+    if 0 < ratio < 1:
+        # Lead with the fact, then the likely cause: a sub-1% target is refused whether it was
+        # meant as 0.4% or (far more often) as the fraction 0.4.
+        raise ValueError(
+            f"{where}={ratio}: sub-1% ratios are not expressible — the smallest is 1 (= 1%). "
+            f"If you meant a fraction, {name} is a PERCENT: pass {ratio*100:g} for "
+            f"{ratio*100:g}% ({name}=40 means 40% of channels)."
+        )
+    if not (1 <= ratio < 100):
+        hint = (" 0 is only accepted as a per-layer dict value, where it means 'leave this layer alone'."
+                if ratio == 0 else "")
+        raise ValueError(
+            f"{where} must be a percent in [1, 100) — 40 means 40% of channels, got {ratio}." + hint
+        )
+    return ratio / 100
+
 # %% ../../nbs/prune/pruner.ipynb #63acddeb-f30e-448b-a397-d4cac2adba7a
 from ..core.schedule import Schedule
 
 class Pruner():
     "Structured pruning for neural networks using torch_pruning"
-    def __init__(self, model, pruning_ratio, context, criteria, schedule=linear_scheduler, ignored_layers=None, example_inputs=torch.randn(1, 3, 224, 224), *args, **kwargs):
+    def __init__(self,
+                 model,                                       # The model to prune
+                 pruning_ratio,                               # Target pruning ratio in percent (40 = 40% of channels/filters), or dict[layer_name, percent] for per-layer targets (0 = skip this layer)
+                 context,                                     # 'local' (per-layer) or 'global' (across the whole model)
+                 criteria,                                    # How to select filters to prune, from `fasterai.core.criteria`
+                 schedule=linear_scheduler,                   # `Schedule` object or torch-pruning scheduler, for iterative pruning
+                 ignored_layers=None,                         # Layers to leave untouched (auto-detected when None)
+                 example_inputs=torch.randn(1, 3, 224, 224),  # Example input used to trace the dependency graph
+                 default_pruning_ratio=0,                     # Percent for the layers a per-layer dict does NOT mention; 0 = leave every layer outside the dict untouched (per-layer dict targets only)
+                 *args,
+                 **kwargs
+    ):
         store_attr()
         self.num_heads = {}
         self._original_params = sum(p.numel() for p in model.parameters())
-        if not self.ignored_layers: self.get_ignored_layers(self.model)
 
-        # Handle pruning_ratio as float or dict
-        self.pruning_ratio_dict = None
+        # `pruning_ratio` and `default_pruning_ratio` are PERCENTS, and every PUBLIC attribute keeps
+        # the value the caller passed. `_check_pruning_ratio` is the one place a percent becomes the
+        # 0-1 fraction torch-pruning consumes, and only the `_tp_*` attributes hold those fractions —
+        # so there is never a percent and a fraction under two look-alike names. Validated BEFORE the
+        # model is traced, so a bad ratio fails on its own instead of behind a wall of graph output.
+        self._tp_pruning_ratio_dict = None
+        self._tp_default_pruning_ratio = 0.
         if isinstance(self.pruning_ratio, dict):
             # Convert name-based dict to module-based dict for torch-pruning
-            self.pruning_ratio_dict = self._resolve_pruning_ratio_dict(self.pruning_ratio)
-            self.default_pruning_ratio = kwargs.pop('default_pruning_ratio', 0.0)
-            print(f"Using per-layer pruning with {len(self.pruning_ratio_dict)} layer-specific ratios")
+            self._tp_pruning_ratio_dict = self._resolve_pruning_ratio_dict(self.pruning_ratio)
+            self._tp_default_pruning_ratio = _check_pruning_ratio(
+                self.default_pruning_ratio, name='default_pruning_ratio', allow_zero=True)
+            # MetaPruner's blanket ratio IS the target for the layers the dict does not mention
+            self._tp_pruning_ratio = self._tp_default_pruning_ratio
         else:
-            if self.pruning_ratio > 1: self.pruning_ratio = self.pruning_ratio / 100
-            if not (0 < self.pruning_ratio <= 1):
-                raise ValueError(f"pruning_ratio must be in range (0, 1], got {self.pruning_ratio}")
-            self.default_pruning_ratio = self.pruning_ratio
+            if self.default_pruning_ratio != 0:
+                raise ValueError(
+                    "default_pruning_ratio only applies to a per-layer dict pruning_ratio — with the "
+                    f"single target pruning_ratio={self.pruning_ratio} there is no layer left for it "
+                    "to apply to."
+                )
+            self._tp_pruning_ratio = _check_pruning_ratio(self.pruning_ratio)
+
+        if not self.ignored_layers: self.get_ignored_layers(self.model)
+        if self._tp_pruning_ratio_dict is not None:
+            print(f"Using per-layer pruning with {len(self._tp_pruning_ratio_dict)} layer-specific ratios")
 
         # Convert Schedule object to torch-pruning compatible function
         tp_schedule = self._to_tp_scheduler(self.schedule)
@@ -54,8 +108,8 @@ class Pruner():
             self.model,
             example_inputs=_example_inputs,
             importance=self.group_importance,
-            pruning_ratio=self.default_pruning_ratio,
-            pruning_ratio_dict=self.pruning_ratio_dict,
+            pruning_ratio=self._tp_pruning_ratio,
+            pruning_ratio_dict=self._tp_pruning_ratio_dict,
             ignored_layers=self.ignored_layers,
             global_pruning=True if self.context=='global' else False,
             num_heads=self.num_heads,
@@ -82,19 +136,21 @@ class Pruner():
         return schedule
 
     def _resolve_pruning_ratio_dict(self, ratio_dict):
-        "Convert layer name strings to module references for torch-pruning"
+        "Convert layer name strings to module references, validating each percent ratio"
         name_to_module = dict(self.model.named_modules())
         resolved = {}
         for key, ratio in ratio_dict.items():
+            # Validated before the lookup: a bad ratio is a caller bug, even for a layer we skip.
+            # allow_zero: an explicit 0% target means "leave this layer alone".
+            layer_label = key if isinstance(key, str) else type(key).__name__
+            fraction = _check_pruning_ratio(ratio, layer=layer_label, allow_zero=True)
             if isinstance(key, str):
                 if key in name_to_module:
-                    module = name_to_module[key]
-                    # Normalize ratio to 0-1 range
-                    resolved[module] = ratio / 100 if ratio > 1 else ratio
+                    resolved[name_to_module[key]] = fraction
                 else:
                     print(f"Warning: Layer '{key}' not found in model, skipping")
             elif isinstance(key, nn.Module):
-                resolved[key] = ratio / 100 if ratio > 1 else ratio
+                resolved[key] = fraction
         return resolved
           
     def prune_model(self):

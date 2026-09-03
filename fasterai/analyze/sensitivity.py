@@ -21,6 +21,13 @@ from ..core.all import large_final, Criteria, Granularities
 __all__ = ['LayerSensitivity', 'SensitivityResult', 'SensitivityAnalyzer', 'analyze_sensitivity']
 
 # %% ../../nbs/analyze/sensitivity.ipynb #dataclasses
+def _expressible_pct(
+    pct: float,  # a per-layer compression target, in percent
+) -> float:      # the same percent, or 0 when it falls below the smallest expressible ratio
+    "Snap a sub-1% target to 0 (= leave this layer alone) so one allocation feeds both APIs"
+    return 0. if 0 < pct < 1 else pct
+
+
 @dataclass(slots=True)
 class LayerSensitivity:
     """Sensitivity result for a single layer."""
@@ -139,6 +146,11 @@ class SensitivityResult:
         physically share one pruning ratio — then the group's target is expanded
         back to every member, so the returned dict stays per-layer. Layers that
         are not prunable receive `min_pct`.
+
+        Targets in (0, 1)% are snapped to **0** ("leave this layer alone"): structured
+        pruning cannot express a sub-1% ratio (`Pruner` refuses it, since 0.4 is far more
+        often a fraction than 0.4%), and for sparsity such a target is a no-op anyway. So
+        one dict can be handed to `Pruner`/`PruneCallback` or to `Sparsifier` unchanged.
         """
         if not self.layers:
             return {}
@@ -162,7 +174,8 @@ class SensitivityResult:
             g["delta"] = max(g["delta"], max(0.0, l.delta))  # delta is shared within a group
 
         # Not-prunable layers are protected at min_pct and kept out of the optimization
-        targets: dict[str, float] = {l.name: round(float(min_pct), 2) for l in not_prunable}
+        targets: dict[str, float] = {l.name: _expressible_pct(round(float(min_pct), 2))
+                                     for l in not_prunable}
         if not groups:
             return targets
 
@@ -172,7 +185,7 @@ class SensitivityResult:
 
         if weights.sum() == 0:
             for names in group_names:
-                for n in names: targets[n] = target_pct
+                for n in names: targets[n] = _expressible_pct(target_pct)
             return targets
         
         # Normalize sensitivity and invert (high sensitivity -> low compression)
@@ -210,7 +223,7 @@ class SensitivityResult:
         # Expand each group's target back to all its member layers (they share the ratio)
         for names, s in zip(group_names, final_s):
             for n in names:
-                targets[n] = round(s * 100, 2)
+                targets[n] = _expressible_pct(round(s * 100, 2))
         return targets
     
     def plot(
@@ -385,7 +398,8 @@ class SensitivityAnalyzer:
         import warnings
         name_of = {m: n for n, m in model.named_modules()}
         with self._quiet():
-            p = Pruner(model, pruning_ratio=0.5, context='local',
+            # The ratio is irrelevant here — only the dependency graph is read (percent, so 50 = 50%)
+            p = Pruner(model, pruning_ratio=50, context='local',
                        criteria=self.criteria, example_inputs=self.sample)
         DG = p.pruner.DG
         ignored = set(p.ignored_layers)
@@ -423,7 +437,7 @@ class SensitivityAnalyzer:
     def _apply_structural_pruning(
         self, 
         target_name: str,   # layer to prune — applied EXACTLY as a real per-layer dict prune
-        level: float,       # pruning ratio (0-100)
+        level: float,       # pruning ratio in percent (30 = 30% of channels)
     ) -> tuple[nn.Module, bool]:
         """Prune the target layer on a fresh model copy exactly as a real per-layer prune would.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import pickle
+import numbers
 from fastcore.basics import store_attr, true
 from typing import Callable, Type
 from ..core.criteria import *
@@ -14,6 +15,23 @@ from einops import rearrange
 __all__ = ['Sparsifier']
 
 # %% ../../nbs/sparse/sparsifier.ipynb #c15c6bb1
+def _check_sparsity(
+    sparsity,                  # Target sparsity in percent (50 = 50% of weights)
+    layer: str | None = None,  # Layer name, when the sparsity comes from a per-layer dict
+    name: str = 'sparsity'     # Parameter name to quote in the error message
+) -> float:                    # The percent, unchanged — sparsity is never rescaled
+    "Validate a percent sparsity. Unlike `pruning_ratio`, a value in (0, 1) is taken LITERALLY"
+    # The asymmetry with `_check_pruning_ratio` is deliberate: `SparsifyCallback` multiplies the
+    # target by its schedule's progress, so it feeds this API intermediates like 50 * 0.01 = 0.5.
+    # A sub-1% sparsity is therefore a normal value here, not a fraction passed by mistake.
+    where = name + (f" for '{layer}'" if layer is not None else "")
+    if isinstance(sparsity, bool) or not isinstance(sparsity, numbers.Real):
+        raise TypeError(f"{where} must be a number in percent (50 = 50% of weights), got {sparsity!r}")
+    if not (0 <= sparsity <= 100):
+        raise ValueError(f"{where} must be a percent in [0, 100] — 50 means 50% of weights, got {sparsity}")
+    return sparsity
+
+
 class Sparsifier():
     "Class providing sparsifying capabilities"
     def __init__(self, 
@@ -59,17 +77,16 @@ class Sparsifier():
         name_to_module = dict(self.model.named_modules())
         
         # Float: apply same sparsity to all layers
-        if isinstance(sparsity, (int, float)):
-            if not (0 <= sparsity <= 100):
-                raise ValueError(f"sparsity must be in range [0, 100], got {sparsity}")
-            return {m: sparsity for m in self._iter_layers()}
+        if isinstance(sparsity, numbers.Real):
+            sp = _check_sparsity(sparsity)
+            return {m: sp for m in self._iter_layers()}
         
         # Dict: resolve names to modules
         if isinstance(sparsity, dict):
             resolved = {}
             for key, sp in sparsity.items():
-                if not (0 <= sp <= 100):
-                    raise ValueError(f"sparsity must be in range [0, 100], got {sp}")
+                layer_label = key if isinstance(key, str) else type(key).__name__
+                sp = _check_sparsity(sp, layer=layer_label)
                 if isinstance(key, str):
                     if key in name_to_module:
                         resolved[name_to_module[key]] = sp
@@ -79,16 +96,15 @@ class Sparsifier():
                     resolved[key] = sp
             return resolved
         
-        raise TypeError(f"sparsity must be float or dict, got {type(sparsity)}")
+        raise TypeError(f"sparsity must be a percent (float) or a per-layer dict of percents, got {type(sparsity)}")
 
     def sparsify_layer(self, 
                        m: nn.Module,              # The layer to sparsify
-                       sparsity: float,           # Target sparsity level (percentage)
+                       sparsity: float,           # Target sparsity in percent (50 = 50% of weights); may be a scheduled intermediate, so sub-1% values are legal here
                        round_to: int | None = None  # Round to a multiple of this value
     ) -> None:
         "Apply sparsification to a single layer"
-        if not (0 <= sparsity <= 100):
-            raise ValueError(f"sparsity must be in range [0, 100], got {sparsity}")
+        sparsity = _check_sparsity(sparsity)
         scores    = self._compute_scores(m, sparsity)
         threshold = self._compute_threshold(scores, sparsity, round_to)
         mask      = self._compute_mask(scores, threshold)
@@ -97,7 +113,7 @@ class Sparsifier():
         self.criteria.update_weights(m)
 
     def sparsify_model(self, 
-                       sparsity: float | dict,        # Target sparsity level or per-layer dict
+                       sparsity: float | dict,        # Target sparsity in percent (50 = 50% of weights), or a per-layer dict. Unlike `pruning_ratio`, a value in (0, 1) is taken literally (0.5 = 0.5%), because schedules feed this method intermediates like 50 * 0.01
                        round_to: int | None = None    # Round to a multiple of this value
     ) -> None:
         "Apply sparsification to all matching layers in the model"
