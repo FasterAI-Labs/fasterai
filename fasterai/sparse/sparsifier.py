@@ -16,14 +16,14 @@ __all__ = ['Sparsifier']
 
 # %% ../../nbs/sparse/sparsifier.ipynb #c15c6bb1
 class Sparsifier():
-    "Class providing sparsifying capabilities. `sparsity` is a fraction in [0, 1] (0.4 = 40%)"
+    "Class providing sparsifying capabilities"
     def __init__(self, 
-                 model: nn.Module,                        # The model to sparsify
+                 model: nn.Module,
                  granularity: str,                        # Granularity of sparsification (e.g., 'weight', 'filter')
-                 context: str,                            # Context for sparsification ('global' or 'local')
+                 context: str,                            # 'global' or 'local'
                  criteria: Criteria,                      # Criteria to determine which weights to keep
-                 nm: bool = False,                        # Whether to use N:M sparsity pattern (forces 2:4 sparsity)
-                 layer_type: Type[nn.Module] = nn.Conv2d, # Type of layers to apply sparsification to
+                 nm: bool = False,                        # Use an N:M sparsity pattern (forces 2:4)
+                 layer_type: Type[nn.Module] = nn.Conv2d,
                  data = None,                             # Calibration data for activation-based criteria (e.g., wanda)
     ):
         if nm: print('Sparsity automatically set to 50% with 2:4 pattern')
@@ -36,10 +36,9 @@ class Sparsifier():
             self.criteria.calibrate(model, data, layer_type)
 
     def _iter_layers(self, 
-                     filter_type: str = 'layer_type',       # Filter: 'layer_type' or 'has_weight'
-                     model: nn.Module | None = None         # Model to iterate (default: self.model)
+                     filter_type: str = 'layer_type',
+                     model: nn.Module | None = None
     ):
-        "Iterate over model modules with filtering"
         model = model or self.model
         for m in model.modules():
             if filter_type == 'layer_type' and isinstance(m, self.layer_type):
@@ -48,13 +47,12 @@ class Sparsifier():
                 yield m
 
     def _iter_named_layers(self):
-        "Iterate over matching layers with their names"
         for name, m in self.model.named_modules():
             if isinstance(m, self.layer_type):
                 yield name, m
 
     def _to_sparsity_dict(self, 
-                          sparsity: float | dict  # Sparsity fraction or per-layer dict
+                          sparsity: float | dict
     ) -> dict:
         "Convert any sparsity input to a {module: fraction} dict"
         if not isinstance(sparsity, dict):
@@ -73,7 +71,7 @@ class Sparsifier():
         return resolved
 
     def sparsify_layer(self, 
-                       m: nn.Module,                # The layer to sparsify
+                       m: nn.Module,
                        sparsity: float,             # Target sparsity, a fraction in [0, 1] (0.4 = 40%)
                        round_to: int | None = None  # Round to a multiple of this value
     ) -> None:
@@ -104,14 +102,14 @@ class Sparsifier():
                 continue
             sp = sparsity_map[m]
             self.sparsify_layer(m, sp, round_to)
-            # Handle batch norm if present
+            # heuristic: the BN is assumed to be the next module in registration order
             mod_idx = mods.index(m)
             if mod_idx + 1 < len(mods) and isinstance(mods[mod_idx + 1], nn.modules.batchnorm._BatchNorm):
                 self.sparsify_batchnorm(m, mods[mod_idx + 1])
                 
     def sparsify_batchnorm(self, 
                           m: nn.Module,       # The layer before batch norm
-                          bn: nn.Module       # The batch norm layer
+                          bn: nn.Module
     ) -> None:
         "Apply filter pruning to batch norm parameters if appropriate"
         mask = getattr(m, "_mask", None)
@@ -120,21 +118,19 @@ class Sparsifier():
             bn.bias.data.mul_(mask.squeeze())
             
     def _apply_masks(self) -> None:
-        "Apply all stored masks to model weights"
         for m in self._iter_layers():
             self._apply(m)
         
     def _apply(self, 
-              m: nn.Module  # Module to apply mask to
+              m: nn.Module
     ) -> None:
-        "Apply mask to a module's weights"
         mask = getattr(m, "_mask", None)
         if true(mask): m.weight.data.mul_(mask)
         if self.granularity == 'filter' and true(m.bias):
             if true(mask): m.bias.data.mul_(mask.squeeze())
     
     def _reset_weights(self, 
-                      model: nn.Module | None = None  # Model to reset (default: self.model)
+                      model: nn.Module | None = None
     ) -> None:
         "Reset weights to their initial values"
         model = model or self.model
@@ -155,8 +151,8 @@ class Sparsifier():
             if true(bias): m.register_buffer("_init_biases", bias.detach().clone())
                     
     def save_model(self, 
-                  path: str,                            # Path to save the model
-                  model: nn.Module | None = None        # Model to save (default: self.model)
+                  path: str,
+                  model: nn.Module | None = None        # Model to save; None = self.model
     ) -> None:
         "Save model without sparsification buffers"
         model = model or self.model
@@ -166,7 +162,7 @@ class Sparsifier():
         torch.save(tmp_model, path)
 
     def _clean_buffers(self, 
-                      model: nn.Module | None = None  # Model to clean (default: self.model)
+                      model: nn.Module | None = None
     ) -> None:
         "Remove internal buffers used for sparsification"
         model = model or self.model
@@ -180,8 +176,8 @@ class Sparsifier():
         self.threshold = None
             
     def _rounded_sparsity(self, 
-                         n_to_keep: int,  # Number of elements to keep
-                         round_to: int     # Rounding value
+                         n_to_keep: int,
+                         round_to: int
     ) -> int:
         "Round the number of elements to keep to a multiple of round_to"
         if round_to == 0:
@@ -195,7 +191,6 @@ class Sparsifier():
         return scores.kthvalue(k).values
 
     def _compute_threshold(self, scores: torch.Tensor, sparsity: float, round_to: int | None) -> torch.Tensor:
-        "Compute threshold for pruning, with optional rounding"
         if self.context == 'global':
             if self.threshold is None: 
                 global_scores = torch.cat([self.criteria(m, self.granularity).view(-1) for m in self._iter_layers()])
@@ -211,18 +206,17 @@ class Sparsifier():
         return self.threshold
     
     def _compute_mask(self, 
-                     scores: torch.Tensor,   # Importance scores
-                     threshold: torch.Tensor # Threshold for pruning
+                     scores: torch.Tensor,
+                     threshold: torch.Tensor
     ) -> torch.Tensor:
-        "Compute binary mask for weights based on scores and threshold"
         if self.nm: return self._apply_nm_sparsity(scores)
         if threshold > scores.max(): threshold = scores.max()
         return scores.ge(threshold).to(dtype=scores.dtype)
 
     def _apply_nm_sparsity(self, 
-                          scores: torch.Tensor  # Importance scores
+                          scores: torch.Tensor
     ) -> torch.Tensor:
-        "Apply 2:4 structured sparsity pattern (N:M sparsity where N=2, M=4)"
+        "Apply the 2:4 structured sparsity pattern"
         out_channels, in_channels, kernel_height, kernel_width = scores.shape
     
         if in_channels % 4 != 0 or in_channels * kernel_height * kernel_width % 16 != 0:

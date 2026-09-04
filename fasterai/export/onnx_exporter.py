@@ -35,18 +35,18 @@ def _require(*packages: str, install_hint: str | None = None) -> None:
 
 # %% ../../nbs/export/onnx_exporter.ipynb #export-onnx
 def export_onnx(
-    model: nn.Module,                     # PyTorch model to export
+    model: nn.Module,
     sample: torch.Tensor,                 # Example input for tracing (with batch dim)
     output_path: str | Path,              # Output .onnx file path
     *,
-    opset_version: int = 17,              # ONNX opset version (17 recommended for compatibility)
+    opset_version: int = 17,
     quantize: bool = False,               # Apply INT8 quantization after export
     quantize_mode: str = "dynamic",       # "dynamic" (no calibration) or "static"
     calibration_data: Iterable | None = None,  # DataLoader for static quantization
     optimize: bool = True,                # Run ONNX graph optimizer
     dynamic_batch: bool = True,           # Allow variable batch size at runtime
-    input_names: list[str] | None = None, # Names for input tensors
-    output_names: list[str] | None = None,# Names for output tensors
+    input_names: list[str] | None = None,
+    output_names: list[str] | None = None,
 ) -> Path:
     "Export a PyTorch model to ONNX format with optional quantization"
     _require("onnx", install_hint="pip install onnx onnxruntime")
@@ -55,7 +55,6 @@ def export_onnx(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Defaults
     input_names = input_names or ["input"]
     output_names = output_names or ["output"]
     
@@ -67,8 +66,6 @@ def export_onnx(
             output_names[0]: {0: "batch_size"},
         }
     
-    # Export to ONNX using legacy TorchScript exporter for better operator coverage
-    # The new dynamo-based exporter (PyTorch 2.x default) has limited op support
     model.eval()
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
@@ -84,14 +81,12 @@ def export_onnx(
             dynamo=False,  # Use legacy TorchScript exporter for broader op support
         )
     
-    # Optimize the graph (optional)
     if optimize and _has_package("onnxoptimizer"):
         import onnxoptimizer
         onnx_model = onnx.load(str(output_path))
         onnx_model = onnxoptimizer.optimize(onnx_model)
         onnx.save(onnx_model, str(output_path))
     
-    # Apply quantization if requested
     if quantize:
         output_path = _quantize_onnx(output_path, quantize_mode, calibration_data, input_names[0])
     
@@ -109,7 +104,6 @@ def _quantize_onnx(
     
     from onnxruntime.quantization import QuantFormat, QuantType, quantize_dynamic, quantize_static, shape_inference
     
-    # Preprocess for shape inference
     preprocessed = onnx_path.with_stem(f"{onnx_path.stem}_preprocessed")
     shape_inference.quant_pre_process(str(onnx_path), str(preprocessed))
     
@@ -176,11 +170,11 @@ class ONNXModel:
 
 # %% ../../nbs/export/onnx_exporter.ipynb #verify-onnx
 def verify_onnx(
-    model: nn.Module,        # Original PyTorch model
-    onnx_path: str | Path,   # Path to exported ONNX model
-    sample: torch.Tensor,    # Test input tensor
-    rtol: float = 1e-3,      # Relative tolerance
-    atol: float = 1e-5,      # Absolute tolerance
+    model: nn.Module,
+    onnx_path: str | Path,
+    sample: torch.Tensor,
+    rtol: float = 1e-3,
+    atol: float = 1e-5,
 ) -> bool:
     "Verify ONNX model outputs match PyTorch model within tolerance"
     model.eval()
@@ -192,8 +186,6 @@ def verify_onnx(
 # %% ../../nbs/export/onnx_exporter.ipynb #88b15f63
 _INT8 = 3  # onnx.TensorProto.INT8
 
-# In a QDQ graph a weight does not reach its operator directly: it arrives through the node(s) that
-# de-quantize it. These are the operators worth walking back through to find the weight tensor itself.
 _WEIGHT_SOURCE_OPS = ("DequantizeLinear", "QuantizeLinear", "Cast")
 
 
@@ -247,7 +239,7 @@ def _pt2e_translation_table() -> dict:
     return table
 
 
-def _graph_constants(graph) -> dict:  # proto/graph unannotated: onnx is an optional import
+def _graph_constants(graph) -> dict:
     "Every tensor an ONNX graph carries as a constant, by name, as the TensorProto that holds it"
     constants = {init.name: init for init in graph.initializer}
     for node in graph.node:  # a producer may emit a constant as a Constant node rather than an initializer
@@ -275,8 +267,7 @@ def _direct_conv_add_edges(graph) -> int:
 
     def source(name: str):
         "The node whose result reaches `name`, walked back through the convolution's own epilogue"
-        # Single-consumer only, which is the same rule the annotation-time matcher applies: an
-        # activation read somewhere else as well is not part of one convolution's private partition.
+        # same single-consumer rule as the annotation-time matcher
         node = producers.get(name)
         while (node is not None and node.op_type in _CONV_EPILOGUE_OPS and node.input
                and consumers.get(node.output[0], 0) == 1):
@@ -305,13 +296,11 @@ def _set_conv_kernel_shape(graph) -> int:
     "Write the optional `kernel_shape` attribute on the Conv nodes that lack it, and count them"
     from onnx import helper
 
-    # Shapes come straight off the TensorProto, so this stays correct — and cheap — on a model whose
-    # weights live in an external data file and were therefore never loaded.
+    # shapes come off the TensorProto: correct even when the weights live in an external file
     dims_by_name = {name: tuple(t.dims) for name, t in _graph_constants(graph).items()}
     producers = _producers(graph)
     written = 0
     for node in graph.node:
-        # `Conv` only: `ConvTranspose`, `MaxPool` and friends are left exactly as the exporter wrote them.
         if node.op_type != "Conv": continue
         if any(attr.name == "kernel_shape" for attr in node.attribute): continue
         if len(node.input) < 2: continue
@@ -327,8 +316,7 @@ def _discard(output_path: Path, proto) -> None:
     for location in {entry.value for init in proto.graph.initializer
                      for entry in init.external_data if entry.key == "location"}:
         sidecar = (output_path.parent / location).resolve()
-        # A `location` in a file this export just wrote is one of ours; never follow one out of the
-        # directory we wrote to anyway.
+        # never follow a `location` out of the directory we wrote to
         if sidecar.is_relative_to(output_path.parent.resolve()): sidecar.unlink(missing_ok=True)
     output_path.unlink(missing_ok=True)
 
@@ -384,7 +372,6 @@ def _drop_unused_constant(graph, name: str) -> bool:
     "Remove a graph constant nothing reads any more, and say whether it was removed"
     # This graph's own nodes only: nothing a pt2e QDQ export writes reads a constant from a subgraph.
     if any(name in node.input for node in graph.node): return False
-    # a name the graph itself exposes is part of its interface, whichever node produced it
     if any(value.name == name for value in (*graph.input, *graph.output)): return False
     for index, initializer in enumerate(graph.initializer):
         if initializer.name == name:
@@ -412,8 +399,6 @@ def _lower_reducemean_axes(graph) -> int:
                 f"'{source}' is computed while the graph runs rather than being a graph constant, and an "
                 f"older opset can only carry axes that are known when the graph is written.")
         axes = [int(axis) for axis in numpy_helper.to_array(constants[source]).reshape(-1)]
-        # `noop_with_empty_axes` is an opset-18 attribute, and it only says what an EMPTY axes list means:
-        # with axes to reduce it changes nothing, and without them the older opset reduces every axis.
         noop = next((a for a in node.attribute if a.name == "noop_with_empty_axes"), None)
         if not axes and noop is not None and noop.i:
             raise ValueError(
@@ -424,8 +409,7 @@ def _lower_reducemean_axes(graph) -> int:
         if axes: node.attribute.append(helper.make_attribute("axes", axes))
         del node.input[1:]
         sources.append(source)
-    # after the walk: one constant may feed several nodes, and deleting a Constant node while iterating
-    # over `graph.node` would skip the node behind it
+    # after the walk: deleting a Constant node while iterating would skip the one behind it
     for source in dict.fromkeys(sources): _drop_unused_constant(graph, source)
     return len(sources)
 
@@ -445,8 +429,7 @@ def _lower_produced_opset(proto, requested: int, output_path: Path) -> int | Non
 
 def _ort_outputs(path: Path, sample: torch.Tensor) -> list[np.ndarray]:
     "Every output ONNX Runtime produces for `sample`, running the graph on the CPU"
-    # Not `ONNXModel`: that wrapper reads the FIRST output only, and a comparison that ignores the other
-    # outputs of a graph is a comparison that can miss what the rewrite did to them.
+    # not `ONNXModel`: that wrapper reads the FIRST output only
     import onnxruntime as ort
 
     session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
@@ -454,8 +437,8 @@ def _ort_outputs(path: Path, sample: torch.Tensor) -> list[np.ndarray]:
     return [np.asarray(output) for output in session.run(None, feed)]
 
 
-def _output_difference(before: list[np.ndarray],  # what the graph as produced answered
-                       after: list[np.ndarray],   # what the rewritten graph answered
+def _output_difference(before: list[np.ndarray],
+                       after: list[np.ndarray],
 ) -> str | None:
     "How two lists of ONNX Runtime outputs differ, or None when they are identical byte for byte"
     def signature(outputs): return [(tuple(o.shape), o.dtype.str) for o in outputs]
@@ -482,8 +465,7 @@ def _write_lowered(proto, output_path: Path, sample: torch.Tensor, produced: int
             f"produced.",
             error=ImportError)
 
-    # The graph as produced is run FIRST, and on its own: a failure here is the exporter's graph failing,
-    # and reporting it against the rewrite would blame the wrong thing.
+    # run the produced graph first and alone: a failure here is the exporter's, not the rewrite's
     try:
         produced_out = _ort_outputs(output_path, sample)
     except Exception as error:
@@ -524,10 +506,10 @@ def export_qdq(
     sample: torch.Tensor,                  # Example input (with batch dim); use the calibration batch size
     output_path: str | Path,               # Output .onnx file path
     *,
-    opset_version: int = 18,               # ONNX opset the file must declare; a lower one is rewritten from the produced graph and verified (needs onnxruntime)
+    opset_version: int = 18,               # ONNX opset the file must declare; a lower one is rewritten and verified
     dynamic_batch: bool = False,           # Ask for a dynamic batch dimension (experimental)
-    input_names: list[str] | None = None,  # Names for input tensors
-    output_names: list[str] | None = None, # Names for output tensors
+    input_names: list[str] | None = None,
+    output_names: list[str] | None = None,
 ) -> Path:
     "Export a quantized model to ONNX, keeping its Q/DQ node pairs intact"
     _check_exportable(model)
@@ -557,15 +539,13 @@ def export_qdq(
     )
     program.save(str(output_path))
 
-    # Everything below reads the FILE that was produced, not the request that produced it.
-    # `load_external_data=False` keeps that cheap: opsets, attributes and shapes live in the proto.
+    # everything below reads the FILE that was produced, not the request
     proto = onnx.load(str(output_path), load_external_data=False)
     produced = _declared_opset(proto)  # read BEFORE the rewrite, which is what makes it declare another
     lowered = _lower_produced_opset(proto, opset_version, output_path)
     _check_produced_opset(proto, opset_version, output_path)
     _check_produced_placement(proto, model, output_path)
 
-    # report what was produced, not what was asked for
     if dynamic_batch and not proto.graph.input[0].type.tensor_type.shape.dim[0].dim_param:
         warnings.warn("The exported graph kept a STATIC batch dimension: a module captured by "
                       "torch.export is specialised to the batch size it was captured with. "
@@ -573,8 +553,7 @@ def export_qdq(
                       UserWarning, stacklevel=2)
 
     patched = _set_conv_kernel_shape(proto.graph)
-    # `lowered` is 0 when the rewrite found nothing to move, and that is a real outcome: the graph was
-    # still relabelled, so it still has to be written and checked. Only `None` means nothing happened.
+    # `lowered` is 0 when nothing moved; only `None` means the rewrite never ran
     if lowered is not None: _write_lowered(proto, output_path, sample, produced)
     elif patched: onnx.save(proto, str(output_path))
     return output_path
@@ -587,13 +566,13 @@ class QDQStats:
     n_dequantize: int            # number of DequantizeLinear nodes
     n_per_channel: int           # nodes whose scale holds one value per channel
     n_nonzero_zero_point: int    # nodes whose zero-point is not all zeros
-    n_unquantized_conv_add: int  # `Add` inputs read straight from a `Conv` (what `qdq_placement='skip_conv_add'` leaves)
+    n_unquantized_conv_add: int  # `Add` inputs read straight from a `Conv`
 
     def as_dict(self) -> dict[str, int]: return asdict(self)
 
 
 def qdq_stats(
-    onnx_path: str | Path,  # Path to an ONNX model
+    onnx_path: str | Path,
 ) -> QDQStats:
     "Count the Q/DQ nodes of an ONNX graph and check their zero-points"
     _require("onnx", install_hint="pip install onnx")
@@ -615,8 +594,7 @@ def qdq_stats(
         if node.op_type == "QuantizeLinear": n_quantize += 1
         elif node.op_type == "DequantizeLinear": n_dequantize += 1
         else: continue
-        # A per-tensor scale is a scalar, a per-channel one holds one value per channel.
-        # (The `axis` attribute cannot be used: exporters also write it on per-tensor nodes.)
+        # axis cannot be used: exporters write it on per-tensor nodes too
         if _constant(node.input[1], node, "scale").size > 1: n_per_channel += 1
         # zero_point is an optional third input: when omitted it is implicitly zero
         zero_point = node.input[2] if len(node.input) > 2 else ""
@@ -627,15 +605,14 @@ def qdq_stats(
 # %% ../../nbs/export/onnx_exporter.ipynb #1eaa6ad7
 def verify_qdq(
     model: nn.Module,       # Reference PyTorch model (the quantized module that was exported)
-    onnx_path: str | Path,  # Path to the exported QDQ ONNX model
+    onnx_path: str | Path,
     sample: torch.Tensor,   # Test inputs, batch dimension first
-    n_batches: int = 1,     # Split `sample` into this many EQUAL batches (a static graph only accepts its own batch size)
+    n_batches: int = 1,     # Split `sample` into this many EQUAL batches
 ) -> float:
     "Fraction of inputs on which the ONNX graph and the PyTorch model predict the same class"
     _require("onnxruntime", install_hint="pip install onnxruntime")
     if sample.shape[0] == 0: raise ValueError("`sample` is empty: there is nothing to compare.")
-    # Equal batches only: a graph exported with a static batch rejects a shorter last batch,
-    # and `torch.chunk` would silently produce one (10 inputs in 4 batches gives 3/3/3/1).
+    # a static graph rejects a shorter last batch
     if sample.shape[0] % n_batches:
         raise ValueError(f"`sample` holds {sample.shape[0]} inputs, which does not split into "
                          f"{n_batches} equal batches.")
@@ -651,8 +628,6 @@ def verify_qdq(
         total += torch_pred.size
         reference.append(torch_pred.reshape(-1))
 
-    # A model that answers the same class to everything agrees with ANY graph, including a broken one:
-    # say so, because a vacuous check must never read as a silent pass.
     if len(set(np.concatenate(reference).tolist())) <= 1:
         warnings.warn(
             "The reference model predicts a single class for every input, so this agreement is 1.0 "

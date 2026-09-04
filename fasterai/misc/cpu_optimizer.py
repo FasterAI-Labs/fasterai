@@ -10,11 +10,11 @@ import warnings
 
 # %% ../../nbs/misc/cpu_optimizer.ipynb #6524ac31
 def optimize_for_cpu(
-    model: nn.Module,          # The PyTorch model to optimize
+    model: nn.Module,
     sample: torch.Tensor,      # Sample input for tracing (with batch dim)
     *,
     backend: str = "compile",  # "compile" (torch.compile) or "trace" (torch.jit.trace)
-    compile_mode: str = "default",  # torch.compile mode
+    compile_mode: str = "default",
 ) -> nn.Module:
     "Optimize model for CPU inference via channels-last layout + compilation"
     model = model.eval().to(memory_format=torch.channels_last)

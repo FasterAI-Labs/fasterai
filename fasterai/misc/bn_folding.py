@@ -31,10 +31,8 @@ class BN_Folder():
                 if isinstance(new_model._modules[name], nn.BatchNorm2d):
                     if isinstance(new_model._modules[module_names[k-1]], nn.Conv2d):
 
-                        # Folded BN
                         folded_conv = self._fold_conv_bn_eval(new_model._modules[module_names[k-1]], new_model._modules[name])
 
-                        # Replace old weight values
                         new_model._modules[module_names[k]] = nn.Identity()
                         new_model._modules[module_names[k-1]] = folded_conv
 
@@ -42,13 +40,13 @@ class BN_Folder():
 
 
     def _bn_folding(self, 
-                    conv_w: torch.Tensor,   # Convolution weights [out_ch, in_ch, kH, kW]
-                    conv_b: torch.Tensor,   # Convolution bias [out_ch] or None
-                    bn_rm: torch.Tensor,    # BatchNorm running mean
-                    bn_rv: torch.Tensor,    # BatchNorm running variance
-                    bn_eps: float,          # BatchNorm epsilon
-                    bn_w: torch.Tensor,     # BatchNorm weight (gamma)
-                    bn_b: torch.Tensor      # BatchNorm bias (beta)
+                    conv_w: torch.Tensor,
+                    conv_b: torch.Tensor,
+                    bn_rm: torch.Tensor,
+                    bn_rv: torch.Tensor,
+                    bn_eps: float,
+                    bn_w: torch.Tensor,
+                    bn_b: torch.Tensor
     ) -> tuple:
         "Compute folded convolution weights and bias from conv + BN parameters"
         if conv_b is None:
@@ -62,8 +60,8 @@ class BN_Folder():
 
 
     def _fold_conv_bn_eval(self, 
-                           conv: nn.Conv2d,      # The convolution layer (must be in eval mode)
-                           bn: nn.BatchNorm2d    # The BatchNorm layer (must be in eval mode)
+                           conv: nn.Conv2d,
+                           bn: nn.BatchNorm2d
     ) -> nn.Conv2d:
         "Fold a BatchNorm layer into a Conv2d layer"
         assert(not (conv.training or bn.training)), "Fusion only for eval!"

@@ -13,7 +13,6 @@ from contextlib import contextmanager
 from functools import partial
 from fastcore.basics import store_attr
 
-# fasterai imports (relative within fasterai package)
 from ..sparse.all import Sparsifier
 from ..prune.all import Pruner
 from ..core.all import large_final, Criteria, Granularities
@@ -26,15 +25,15 @@ __all__ = ['LayerSensitivity', 'SensitivityResult', 'SensitivityAnalyzer', 'anal
 @dataclass(slots=True)
 class LayerSensitivity:
     """Sensitivity result for a single layer."""
-    name: str                    # layer name
+    name: str
     layer_type: str              # e.g., "Conv2d", "Linear"
-    params: int                  # number of parameters
+    params: int
     baseline_metric: float       # metric before compression
     compressed_metric: float     # metric after compression
     delta: float                 # metric change (positive = degradation)
-    group_id: int | None = None  # pruning: dependency-group id (coupled layers share one); None for sparsity/quant
+    group_id: int | None = None  # pruning: dependency-group id, shared by coupled layers
     group_members: list[str] = field(default_factory=list)  # names of all layers co-pruned with this one
-    prunable: bool = True        # False if the layer could not be pruned (genuine no-op) — not "robust"
+    prunable: bool = True        # False if the layer could not be pruned — not "robust"
 
     def as_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -46,10 +45,10 @@ class SensitivityResult:
     """Structured result from sensitivity analysis."""
     compression_type: str                   # "sparsity", "pruning", "quantization"
     compression_level: float                # fraction for sparsity/pruning (0.5 = 50%), bit width for quantization
-    baseline_metric: float                  # overall baseline metric
-    layers: list[LayerSensitivity]          # per-layer results
-    metric_name: str = "accuracy"           # name of the metric
-    higher_is_better: bool = True           # whether higher metric is better
+    baseline_metric: float
+    layers: list[LayerSensitivity]
+    metric_name: str = "accuracy"
+    higher_is_better: bool = True
     
     def as_dict(self) -> dict[str, Any]:
         """Convert to flat dictionary."""
@@ -70,15 +69,12 @@ class SensitivityResult:
     
     def top(
         self,
-        n: int = 5,                    # number of layers to return
+        n: int = 5,
         *,
         most_sensitive: bool = True,   # True=highest delta (fragile), False=lowest (robust)
     ) -> list[LayerSensitivity]:
-        """Return top N most or least sensitive layers.
-
-        Layers that could not be pruned (`prunable=False`) are excluded — a no-op
-        prune is NOT evidence of robustness, so it must never rank as compressible.
-        """
+        """Return top N most or least sensitive layers; a layer that could not be pruned is excluded —
+        a no-op prune is not evidence of robustness, so it never ranks as compressible."""
         candidates = [l for l in self.layers if l.prunable]
         sorted_layers = sorted(candidates, key=lambda x: x.delta, reverse=most_sensitive)
         return sorted_layers[:n]
@@ -101,18 +97,15 @@ class SensitivityResult:
             grp = f"  [group {layer.group_id}]" if layer.group_id is not None else ""
             print(f"     {i}. {layer.name:30} Δ={sign}{layer.delta:.4f}{grp}")
 
-        # Most sensitive (fragile) layers
         print(f"  🔴 Most Sensitive (fragile):")
         for i, layer in enumerate(self.top(top, most_sensitive=True), 1):
             _line(i, layer)
         print()
         
-        # Most robust layers
         print(f"  🟢 Most Robust (compressible):")
         for i, layer in enumerate(self.top(top, most_sensitive=False), 1):
             _line(i, layer)
 
-        # Layers that could not be pruned in isolation — surfaced, NOT ranked as robust
         not_prunable = [l for l in self.layers if not l.prunable]
         if not_prunable:
             print()
@@ -135,14 +128,7 @@ class SensitivityResult:
         gamma: float = 1.0,      # exponent for sensitivity scaling (higher = more differentiation)
     ) -> dict[str, float]:
         """Convert sensitivity to non-uniform per-layer compression targets, as fractions.
-        
-        High sensitivity layers get lower compression, robust layers get higher.
-        Uses parameter-weighted optimization to hit `target` exactly.
-
-        Coupled layers (same `group_id`) are optimized as a SINGLE knob — they
-        physically share one pruning ratio — then the group's target is expanded
-        back to every member, so the returned dict stays per-layer. Layers that
-        are not prunable receive `min_ratio`.
+        Coupled layers are solved as a SINGLE knob; not-prunable layers receive `min_ratio`.
         """
         if not self.layers:
             return {}
@@ -151,9 +137,6 @@ class SensitivityResult:
         smin = as_fraction(min_ratio, 'min_ratio')
         smax = as_fraction(max_ratio, 'max_ratio')
 
-        # Collapse to one entry per dependency group (a singleton group per layer when
-        # group_id is None, e.g. sparsity/quant). This stops a coupled group of N layers
-        # from being double-counted as N independent knobs in the weighted-mean solve.
         prunable = [l for l in self.layers if l.prunable]
         not_prunable = [l for l in self.layers if not l.prunable]
         groups: OrderedDict[Any, dict] = OrderedDict()
@@ -164,7 +147,6 @@ class SensitivityResult:
             g["params"] += float(l.params)
             g["delta"] = max(g["delta"], max(0.0, l.delta))  # delta is shared within a group
 
-        # Not-prunable layers are protected at min_ratio and kept out of the optimization
         targets: dict[str, float] = {l.name: round(smin, 4) for l in not_prunable}
         if not groups:
             return targets
@@ -178,7 +160,6 @@ class SensitivityResult:
                 for n in names: targets[n] = round(target, 4)
             return targets
         
-        # Normalize sensitivity and invert (high sensitivity -> low compression)
         if np.allclose(deltas, deltas[0]):
             s0 = np.full_like(deltas, target)
         else:
@@ -194,7 +175,6 @@ class SensitivityResult:
             s = np.clip(s0 + lam, smin, smax)
             return float(np.dot(weights, s))
         
-        # Find lambda via bisection
         lam_lo, lam_hi = -1.0, 1.0
         while f(lam_lo) > tgt:
             lam_lo *= 2
@@ -210,7 +190,6 @@ class SensitivityResult:
         
         final_s = np.clip(s0 + 0.5 * (lam_lo + lam_hi), smin, smax)
 
-        # Expand each group's target back to all its member layers (they share the ratio)
         for names, s in zip(group_names, final_s):
             for n in names:
                 targets[n] = round(float(s), 4)
@@ -226,7 +205,6 @@ class SensitivityResult:
         names = [l.name for l in self.layers]
         deltas = np.array([l.delta for l in self.layers], dtype=float)
         
-        # Color by sensitivity
         norm = (deltas - deltas.min()) / (np.ptp(deltas) + 1e-9)
         colors = plt.cm.RdYlGn_r(norm)  # Red=sensitive, Green=robust
         
@@ -243,26 +221,23 @@ class SensitivityResult:
 
 # %% ../../nbs/analyze/sensitivity.ipynb #analyzer
 class SensitivityAnalyzer:
-    """Analyze per-layer sensitivity to compression methods.
-    
-    Uses fasterai's Sparsifier for sparsity analysis and Pruner for structural pruning.
-    Supports sparsity (weight zeroing), pruning (structural), and quantization.
+    """Analyze per-layer sensitivity to sparsity, structural pruning and quantization.
     `level` is a fraction in [0, 1] (0.5 = 50%) for sparsity and pruning, a bit width for quantization.
     """
     
     VALID_COMPRESSIONS = frozenset({"sparsity", "pruning", "quantization"})
-    COMPRESSIBLE_LAYERS = Granularities.available_modules()  # Use fasterai's layer registry
+    COMPRESSIBLE_LAYERS = Granularities.available_modules()
     
     def __init__(
         self,
-        model: nn.Module,                              # model to analyze
+        model: nn.Module,
         sample: torch.Tensor,                          # example input (for Pruner dependency analysis)
-        eval_fn: Callable[[nn.Module], float],         # evaluation function returning metric
+        eval_fn: Callable[[nn.Module], float],
         *,
         criteria: Criteria = large_final,              # fasterai criteria for importance scoring
-        higher_is_better: bool = True,                 # whether higher metric values are better
-        metric_name: str = "accuracy",                 # name of the metric for display
-        device: str | torch.device | None = None,      # device for computation
+        higher_is_better: bool = True,
+        metric_name: str = "accuracy",
+        device: str | torch.device | None = None,
         calibration_data: torch.Tensor | None = None,  # for observer-based quantization
     ):
         store_attr()
@@ -274,7 +249,7 @@ class SensitivityAnalyzer:
 
     @staticmethod
     def _out_dim(
-        module: nn.Module,  # layer to inspect
+        module: nn.Module,
     ) -> int | None:
         """Output channels (Conv) or features (Linear) of a layer."""
         return getattr(module, 'out_channels', None) or getattr(module, 'out_features', None)
@@ -289,7 +264,7 @@ class SensitivityAnalyzer:
     
     def _get_compressible_layers(
         self,
-        layer_types: type | tuple[type, ...] | None = None,  # a module type or tuple of types to restrict to (None = all compressible)
+        layer_types: type | tuple[type, ...] | None = None,
     ) -> list[tuple[str, nn.Module]]:
         """Get all compressible layers (Conv2d, Linear, etc.), optionally filtered to `layer_types`."""
         if layer_types is None:
@@ -305,7 +280,7 @@ class SensitivityAnalyzer:
     
     def _init_sparsifier(
         self,
-        granularity: str = "weight",  # sparsity granularity
+        granularity: str = "weight",
     ) -> None:
         """Initialize fasterai Sparsifier (saves initial weights for all layers)."""
         if self._sparsifier is None:
@@ -324,7 +299,7 @@ class SensitivityAnalyzer:
     
     def _restore_layer(
         self,
-        module: nn.Module,  # layer to restore
+        module: nn.Module,
     ) -> None:
         """Restore a single layer from saved initial weights."""
         if hasattr(module, '_init_weights'):
@@ -353,7 +328,7 @@ class SensitivityAnalyzer:
 
     def _channel_signature(
         self,
-        model: nn.Module,  # model to fingerprint
+        model: nn.Module,
     ) -> tuple:
         """Tuple of out-channels/out-features for every compressible layer (detects no-op prunes)."""
         return tuple(
@@ -364,18 +339,10 @@ class SensitivityAnalyzer:
 
     def _build_dependency_groups(
         self,
-        model: nn.Module,  # model to analyze (groups keyed by layer NAME, stable across clones)
+        model: nn.Module,
     ) -> tuple[dict[str, int], dict[int, list[str]]]:
         """Map each compressible layer to its OUTPUT-coupled dependency group.
-
-        Residual/skip connections force several layers to share an output-channel count, so
-        pruning any one of them prunes all of them — and they yield the SAME accuracy delta.
-        We detect these coupled sets (torch-pruning handler `prune_out_channels`) so the result
-        can tag coupled layers with a shared `group_id` and so `to_layer_targets()` treats each
-        coupled set as a single knob. Layers fasterai's Pruner ignores (output Linear, attention
-        qkv) get no group — they are not independently prunable.
-
-        Returns (name->group_id, group_id->member_names).
+        Returns (name->group_id, group_id->member_names); the layers Pruner ignores get no group.
         """
         import torch_pruning as tp
         import warnings
@@ -401,11 +368,10 @@ class SensitivityAnalyzer:
                             and getattr(dep.handler, '__name__', '') == 'prune_out_channels'):
                         coupled.add(name_of[tmod])
             except Exception as e:
-                # Treat as uncoupled (its own singleton group); warn for parity with the prune path
+                # treat as uncoupled; warn for parity with the prune path
                 warnings.warn(f"Could not resolve dependency group for {name}: {e}")
             name_to_coupled[name] = frozenset(coupled)
 
-        # Assign a group id per unique coupled-set
         key_to_gid: dict[frozenset, int] = {}
         name_to_gid: dict[str, int] = {}
         gid_to_members: dict[int, list[str]] = {}
@@ -418,16 +384,11 @@ class SensitivityAnalyzer:
 
     def _apply_structural_pruning(
         self, 
-        target_name: str,   # layer to prune — applied EXACTLY as a real per-layer dict prune
-        level: float,       # pruning ratio, a fraction in [0, 1]
+        target_name: str,
+        level: float,
     ) -> tuple[nn.Module, bool]:
         """Prune the target layer on a fresh model copy exactly as a real per-layer prune would.
-
-        Uses fasterai's per-layer dict target `{target_name: level}`, so the measured
-        degradation matches what the user gets from `Pruner(model, {target_name: level})`
-        or `PruneCallback(pruning_ratio={target_name: level})` — including the residual cascade
-        for coupled layers. This is what makes the reported Δ a faithful predictor of a real
-        prune. Returns (pruned_model, prunable); prunable is False if the prune changed nothing.
+        Returns (pruned_model, prunable); prunable is False if the prune changed nothing.
         """
         import warnings
         model_copy = self._fresh_copy()
@@ -452,8 +413,6 @@ class SensitivityAnalyzer:
 
         prunable = self._channel_signature(model_copy) != before
         return model_copy, prunable
-    
-    # ─── Quantization helpers ────────────────────────────────────────────────────
     
     def _fake_quantize(
         self,
@@ -504,7 +463,7 @@ class SensitivityAnalyzer:
     
     def _setup_activation_hooks(
         self,
-        bits: int = 8,  # quantization bits
+        bits: int = 8,
     ) -> None:
         """Register activation quantization hooks on all layers."""
         self._remove_activation_hooks()
@@ -521,8 +480,6 @@ class SensitivityAnalyzer:
         self._activation_hooks = []
         self._activation_quantize_config = {}
     
-    # ─── Per-layer probes ────────────────────────────────────────────────────────
-
     @contextmanager
     def _probe_context(
         self,
@@ -599,8 +556,6 @@ class SensitivityAnalyzer:
         if saved_bias is not None: module.bias.data.copy_(saved_bias)
         return metric, True
 
-    # ─── Main analysis method ────────────────────────────────────────────────────
-
     def _mode_info(self, compression: str, granularity: str, quant_per_channel: bool, quant_activations: bool) -> str:
         """The mode suffix of the progress banner."""
         if compression == "quantization":
@@ -611,27 +566,18 @@ class SensitivityAnalyzer:
 
     def analyze(
         self,
-        compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",  # compression type
-        level: float = 0.5,                   # compression level: a fraction in [0, 1] for sparsity/pruning, a bit width for quantization
+        compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",
+        level: float = 0.5,
         *,
-        granularity: str = "weight",          # granularity for sparsity (fasterai granularities)
+        granularity: str = "weight",          # granularity for sparsity
         layers: list[str] | None = None,      # specific layer names to analyze (None = all)
-        layer_types: type | tuple[type, ...] | None = None,  # restrict to a module type or tuple of types, e.g. nn.Conv2d or (nn.Conv2d, nn.Linear) (None = all compressible)
-        quant_per_channel: bool = True,       # use per-channel quantization
-        quant_activations: bool = False,      # also quantize activations
-        verbose: bool = True,                 # print progress
+        layer_types: type | tuple[type, ...] | None = None,  # restrict to a module type or tuple of types; None = all compressible
+        quant_per_channel: bool = True,
+        quant_activations: bool = False,
+        verbose: bool = True,
     ) -> SensitivityResult:
         """Analyze per-layer sensitivity to compression.
-
-        For **pruning**, each layer is pruned with the per-layer target `{name: level}` — the
-        exact operation `Pruner`/`PruneCallback` perform — so the reported Δ faithfully predicts
-        the degradation of really pruning that layer at `level`. Residual/skip-coupled layers
-        prune together and therefore share a Δ (tagged with a common `group_id`); layers that
-        cannot be pruned independently (output Linear, attention) are marked `prunable=False`.
-
-        Pass `layer_types` to restrict the analysis to specific module types — a single type or
-        a tuple, e.g. `layer_types=nn.Conv2d` analyzes only convolutions and skips the
-        classifier `Linear`.
+        For pruning, each layer gets the per-layer target `{name: level}`, so Δ predicts a real prune.
         """
         if compression not in self.VALID_COMPRESSIONS:
             raise ValueError(f"compression must be one of {self.VALID_COMPRESSIONS}")
@@ -653,7 +599,6 @@ class SensitivityAnalyzer:
         if layers is not None:
             all_layers = [(n, m) for n, m in all_layers if n in layers]
 
-        # Dependency groups are built once: coupled layers share a group_id, hence one prune per group
         group_gid, group_members = {}, {}
         if compression == "pruning":
             group_gid, group_members = self._build_dependency_groups(self.model)
@@ -714,8 +659,8 @@ class SensitivityAnalyzer:
     
     def sweep(
         self,
-        compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",  # compression type
-        levels: list[float] | None = None,  # compression levels to test (default: [0.25, 0.5, 0.75])
+        compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",
+        levels: list[float] | None = None,  # compression levels to test; None = [0.25, 0.5, 0.75]
         **kwargs,
     ) -> list[SensitivityResult]:
         """Run sensitivity analysis at multiple compression levels."""
@@ -733,20 +678,20 @@ class SensitivityAnalyzer:
 
 # %% ../../nbs/analyze/sensitivity.ipynb #convenience
 def analyze_sensitivity(
-    model: nn.Module,                    # model to analyze
-    sample: torch.Tensor,                # example input tensor
-    eval_fn: Callable[[nn.Module], float],  # evaluation function returning metric
-    compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",  # compression type
-    level: float = 0.5,                  # compression level: a fraction in [0, 1] for sparsity/pruning, a bit width for quantization
+    model: nn.Module,
+    sample: torch.Tensor,
+    eval_fn: Callable[[nn.Module], float],
+    compression: Literal["sparsity", "pruning", "quantization"] = "sparsity",
+    level: float = 0.5,
     *,
-    criteria: Criteria = large_final,    # fasterai criteria for importance scoring
-    higher_is_better: bool = True,       # whether higher metric values are better
-    metric_name: str = "accuracy",       # name of the metric for display
-    granularity: str = "weight",         # granularity for sparsity
-    verbose: bool = True,                # print progress
+    criteria: Criteria = large_final,
+    higher_is_better: bool = True,
+    metric_name: str = "accuracy",
+    granularity: str = "weight",
+    verbose: bool = True,
     **kwargs,
 ) -> SensitivityResult:
-    """One-line sensitivity analysis using fasterai compression methods."""
+    """One-line sensitivity analysis; arguments as `SensitivityAnalyzer` and `SensitivityAnalyzer.analyze`."""
     analyzer = SensitivityAnalyzer(
         model, sample, eval_fn, 
         criteria=criteria, 

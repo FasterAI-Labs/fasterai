@@ -17,13 +17,12 @@ __all__ = ['one_shot', 'iterative', 'agp', 'one_cycle', 'cos', 'lin', 'dsd', 'sc
 class Schedule():
     "Base class to create schedules that return progress (0→1)"
     def __init__(self,
-                 sched_func: Callable,  # Function that computes progress at given training percentage
+                 sched_func: Callable,  # Computes progress at a given training percentage
                  start_pct: float = 0., # Percentage of training to start schedule
                  end_pct: float = 1.,   # Percentage of training to end schedule
-                 start_val: float = 0., # Starting value for progress range
-                 end_val: float = 1.    # Ending value for progress range
+                 start_val: float = 0.,
+                 end_val: float = 1.
     ):
-        "Base class to create schedules for pruning, regularization, distillation, etc."
         store_attr()
         self._current_progress = start_val
         self._previous_progress = start_val
@@ -44,7 +43,6 @@ class Schedule():
         "Check if progress changed since last step"
         return self._previous_progress != self._current_progress
 
-    # Backward compatibility alias
     @property
     def pruned(self) -> bool:
         "Deprecated: use `.changed` instead"
@@ -54,7 +52,6 @@ class Schedule():
         "Update previous progress after action applied"
         self._previous_progress = self._current_progress
 
-    # Backward compatibility alias
     def after_pruned(self) -> None:
         "Deprecated: use `after_step()` instead"
         self.after_step()
@@ -65,8 +62,8 @@ class Schedule():
         self._previous_progress = self.start_val
 
     def plot(self,
-             target: float = 100,    # Target value to visualize (e.g., sparsity percentage)
-             num_points: int = 1000  # Number of points to plot
+             target: float = 100,
+             num_points: int = 1000
     ) -> None:
         "Plot the schedule showing how target value changes over training"
         pcts = np.linspace(0, 1, num_points)
@@ -79,9 +76,9 @@ class Schedule():
 
 # %% ../../nbs/core/schedules.ipynb #corresponding-religious
 def sched_oneshot(
-    start: float, # Starting sparsity level
-    end: float,   # Target sparsity level
-    pos: float    # Current position in schedule (0-1)
+    start: float,
+    end: float,
+    pos: float
 ) -> float:
     "One-shot pruning: jump directly to target sparsity"
     return end
@@ -90,9 +87,9 @@ one_shot = Schedule(sched_oneshot, start_pct=0.5)
 
 # %% ../../nbs/core/schedules.ipynb #4fb3ead4
 def sched_iterative(
-    start: float, # Starting sparsity level
-    end: float,   # Target sparsity level
-    pos: float,   # Current position in schedule (0-1)
+    start: float,
+    end: float,
+    pos: float,
     n_steps: int = 3  # Number of pruning steps
 ) -> float:
     "Perform iterative pruning in discrete steps"
@@ -102,9 +99,9 @@ iterative = Schedule(sched_iterative, start_pct=0.2)
 
 # %% ../../nbs/core/schedules.ipynb #electronic-trainer
 def sched_agp(
-    start: float, # Starting sparsity level
-    end: float,   # Target sparsity level
-    pos: float    # Current position in schedule (0-1)
+    start: float,
+    end: float,
+    pos: float
 ) -> float:
     "Automated gradual pruning schedule with cubic decay"
     return end + (start - end) * (1 - pos)**3
@@ -113,9 +110,9 @@ agp = Schedule(sched_agp, start_pct=0.2)
 
 # %% ../../nbs/core/schedules.ipynb #6d4f11c9
 def sched_onecycle(
-    start: float,  # Starting sparsity level
-    end: float,    # Target sparsity level
-    pos: float,    # Current position in schedule (0-1)
+    start: float,
+    end: float,
+    pos: float,
     α: float = 14, # Steepness parameter
     β: float = 6   # Offset parameter
 ) -> float:
@@ -131,9 +128,9 @@ lin = Schedule(sched_lin)
 
 # %% ../../nbs/core/schedules.ipynb #decent-savannah
 def sched_dsd(
-    start: float, # Starting sparsity level
-    end: float,   # Target sparsity level
-    pos: float    # Current position in schedule (0-1)
+    start: float,
+    end: float,
+    pos: float
 ) -> float:
     "Dense-Sparse-Dense schedule: increase then decrease sparsity"
     if pos<0.5:

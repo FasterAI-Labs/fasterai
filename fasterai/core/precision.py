@@ -13,7 +13,7 @@ __all__ = ['QSCHEMES', 'WIDTHS', 'QDQ_PLACEMENTS', 'PRECISION_SUPPORT', 'SPEC_AT
 # %% ../../nbs/core/precision.ipynb #precision-cell
 QSCHEMES = ('per_tensor', 'per_channel', 'per_group')  # the weight axes this grammar names
 WIDTHS = (4, 8, 16)                                    # the bit widths it names; 16 = left in floating point
-QDQ_PLACEMENTS = ('per_op', 'skip_conv_add')  # where a flow may put its Q/DQ pairs; the first one quantizes every operator it annotates
+QDQ_PLACEMENTS = ('per_op', 'skip_conv_add')  # where a flow may put its Q/DQ pairs
 
 
 def _label(weight_bits: int, act_bits: int) -> str:
@@ -24,16 +24,16 @@ def _label(weight_bits: int, act_bits: int) -> str:
 @dataclass(frozen=True, slots=True)
 class PrecisionCell:
     "What one (backend, weight width, activation width) combination can do"
-    backend: str               # `Quantizer` backend
-    weight_bits: int           # weight width
-    act_bits: int              # activation width (16: activations stay in floating point)
+    backend: str
+    weight_bits: int
+    act_bits: int
     qschemes: tuple[str, ...]  # weight axes the cell can honor; the first one is its default
     symmetries: tuple[bool, ...]  # symmetry settings it can honor; the first one is its default
     per_layer: bool            # honors a {layer_name: width} dict
     exports: bool              # `export_qdq` can write it as a QDQ ONNX graph
     note: str                  # what it does, and why it does not export when it does not
     default_group_size: int | None = None  # group size the backend picks when the axis is 'per_group'
-    qdq_placements: tuple[str, ...] = ()  # Q/DQ placements it can honor, first one its default; empty = the cell has no such axis
+    qdq_placements: tuple[str, ...] = ()  # Q/DQ placements it can honor, first one its default
 
     @property
     def label(self) -> str:
@@ -114,11 +114,11 @@ SPEC_ATTR = '_fasterai_quant_spec'  # attribute `Quantizer` leaves on the models
 @dataclass(frozen=True, slots=True)
 class QuantSpec:
     "The single precision cell a `Quantizer` resolved to — attached to the model it quantizes"
-    backend: str                        # backend that will apply it
+    backend: str
     method: str                         # 'static', 'dynamic', 'qat' or a torchao recipe
-    weight_bits: int                    # weight width
-    act_bits: int                       # activation width
-    qscheme: str                        # weight axis
+    weight_bits: int
+    act_bits: int
+    qscheme: str
     symmetric: bool                     # True when every zero-point is 0
     group_size: int | None = None       # weights sharing one scale (qscheme='per_group')
     layer_bits: dict | None = None      # per-layer widths, when the caller asked for some
@@ -188,10 +188,6 @@ def _split_weight_bits(weight_bits) -> tuple[int | None, dict | None]:
             if _check_width(f"weight_bits['{name}']", bits) not in (8, 16):
                 raise ValueError(f"`weight_bits['{name}']={bits}`: a per-layer width is 8 (quantize this "
                                  "layer) or 16 (leave it in floating point).")
-        # This scalar does not set the width — `_resolve_method` does. It steers which precision CELL
-        # the request lands in, and therefore which refusal it gets: a dict holding an 8 is a request
-        # for a W8 cell, while a dict that only says 16 asks for no quantized layer at all and leaves
-        # the cell to the backend, which is how `weight_bits={'fc': 16}` has always resolved.
         return (8 if 8 in weight_bits.values() else None), dict(weight_bits)
     return _check_width('weight_bits', weight_bits), None
 
@@ -287,9 +283,6 @@ def _resolve_group_size(cell: PrecisionCell, qscheme: str, group_size) -> int | 
 
 def _resolve_qdq_placement(cell: PrecisionCell, qdq_placement) -> str | None:
     "Pick where the Q/DQ pairs sit, refusing a placement the cell's flow cannot produce"
-    # Like `group_size`, this axis is left at None on a cell that has none, rather than recorded as a
-    # default no flow would read: `qdq_placement` describes the arithmetic, so it may only say
-    # something on the backend that can actually place the pairs.
     if qdq_placement is None: return cell.default_qdq_placement
     if not isinstance(qdq_placement, str):
         raise _type_error('qdq_placement', f"one of {list(QDQ_PLACEMENTS)} (str)", qdq_placement)
@@ -298,9 +291,7 @@ def _resolve_qdq_placement(cell: PrecisionCell, qdq_placement) -> str | None:
                          f"names are {list(QDQ_PLACEMENTS)}.")
     if qdq_placement not in cell.qdq_placements:
         able = _backends_where(lambda c: qdq_placement in c.qdq_placements)
-        # The first arm is for the cell that names SOME placements but not this one. No cell is in
-        # that state today (pt2e names both), and it is kept so that adding one cannot silently ship
-        # the wrong explanation — the same reason `_resolve_qscheme` names the axes a cell does have.
+        # first arm: a cell that names SOME placements but not this one — none is in that state today
         why = (f"it places them {list(cell.qdq_placements)}" if cell.qdq_placements else
                "its flow quantizes every operator it rewrites and names no placement at all")
         raise ValueError(f"backend='{cell.backend}' {cell.label} cannot honor "
@@ -326,16 +317,16 @@ def _resolve_symmetry(cell: PrecisionCell, symmetric) -> bool:
 
 
 def _resolve_spec(
-    backend: str = 'x86',            # Target backend
-    method: str = 'static',          # Quantization method, or a torchao recipe
+    backend: str = 'x86',
+    method: str = 'static',
     *,
-    weight_bits=None,                # Weight width, or a {layer_name: width} dict; None = the backend's native width
-    act_bits=None,                   # Activation width; None = the backend's native width
-    qscheme: str | None = None,      # Weight axis; None = the backend's default
-    group_size: int | None = None,   # Weights sharing one scale (qscheme='per_group')
-    symmetric: bool | None = None,   # Force zero-point 0; None = the backend's default
-    qdq_placement: str | None = None,  # Where the Q/DQ pairs sit: 'per_op', 'skip_conv_add'; None = the backend's default
-    use_per_tensor: bool = False,    # Legacy per-tensor flag, kept in sync with `qscheme`
+    weight_bits=None,
+    act_bits=None,
+    qscheme: str | None = None,
+    group_size: int | None = None,
+    symmetric: bool | None = None,
+    qdq_placement: str | None = None,
+    use_per_tensor: bool = False,
 ) -> QuantSpec:
     "Resolve the precision grammar into the one `QuantSpec` a backend will apply, or say why it cannot"
     if not isinstance(backend, str):
@@ -349,8 +340,6 @@ def _resolve_spec(
     symmetric = _resolve_symmetry(cell, symmetric)
     qdq_placement = _resolve_qdq_placement(cell, qdq_placement)
     if layer_bits and not cell.per_layer:
-        # A backend that honors per-layer widths in ANOTHER precision is the common near-miss: name that
-        # precision and the argument that reaches it, rather than sending the caller to another backend.
         sibling = next((c for c in _CELLS if c.backend == backend and c.per_layer), None)
         if sibling is not None:
             raise ValueError(f"backend='{backend}' cannot honor a per-layer `weight_bits` dict at "

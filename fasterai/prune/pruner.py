@@ -22,17 +22,17 @@ from torch.fx import symbolic_trace
 from ..core.schedule import Schedule
 
 class Pruner():
-    "Structured pruning for neural networks using torch_pruning. `pruning_ratio` is a fraction in [0, 1] (0.4 = 40%)"
+    "Structured pruning for neural networks using torch_pruning"
     def __init__(self,
-                 model,                       # The model to prune
-                 pruning_ratio,               # Filters to remove, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict (0 leaves a layer alone)
+                 model,
+                 pruning_ratio,               # Filters to remove, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict
                  context,                     # 'local' (per-layer) or 'global' (across the whole model)
                  criteria,                    # How to select filters to prune, from `fasterai.core.criteria`
                  schedule=linear_scheduler,   # How the ratio progresses over the pruning steps
-                 ignored_layers=None,         # Layers to leave untouched (default: output Linear and attention qkv)
+                 ignored_layers=None,         # Layers to leave untouched; None = output Linear and attention qkv
                  example_inputs=torch.randn(1, 3, 224, 224),  # Input used to trace layer dependencies
                  *args,
-                 **kwargs                     # Passed to `tp.pruner.MetaPruner` (e.g. `default_pruning_ratio` for the layers a dict does not name)
+                 **kwargs                     # Passed to `tp.pruner.MetaPruner`
     ):
         if not any(p.requires_grad for p in model.parameters()):
             raise ValueError("No parameter requires grad: call model.requires_grad_(True) before pruning.")
@@ -80,10 +80,8 @@ class Pruner():
 
     def _to_tp_scheduler(self, schedule):
         "Convert Schedule object or callable to torch-pruning compatible scheduler"
-        # If it's a Schedule object, extract sched_func and build compatible function
         if isinstance(schedule, Schedule):
             return self._build_pruning_schedule(schedule.sched_func)
-        # Otherwise assume it's already a compatible callable (like linear_scheduler)
         return schedule
 
     def _resolve_pruning_ratio_dict(self, ratio_dict):
@@ -105,15 +103,15 @@ class Pruner():
 
 
     def get_linear_layers_to_ignore(self, 
-                                    model: nn.Module  # The model to analyze
+                                    model: nn.Module
     ):
         "Find and ignore output Linear layers to preserve model output dimensions"
         try:
             traced = symbolic_trace(model)
             for node in traced.graph.nodes:
-                if node.op == "output":  # Identify the output
+                if node.op == "output":
                     for input_node in node.all_input_nodes:
-                        if input_node.target:  # Find the corresponding layer
+                        if input_node.target:
                             module = dict(model.named_modules()).get(input_node.target)
                             if isinstance(module, torch.nn.Linear):
                                 self.ignored_layers.append(module)
@@ -123,7 +121,7 @@ class Pruner():
 
 
     def get_attention_layers_to_ignore(self, 
-                                       model: nn.Module  # The model to analyze
+                                       model: nn.Module
     ):
         "Find and ignore attention layers (qkv projections) to preserve attention structure"
         for module in model.modules():
@@ -139,7 +137,7 @@ class Pruner():
 
     
     def get_ignored_layers(self, 
-                           model: nn.Module  # The model to analyze
+                           model: nn.Module
     ):
         "Build list of layers to ignore during pruning"
         self.ignored_layers = []

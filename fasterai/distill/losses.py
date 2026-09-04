@@ -10,8 +10,8 @@ import torch.nn.functional as F
 __all__ = ['SoftTarget', 'Logits', 'Mutual', 'DecoupledKD', 'Attention', 'ActivationBoundaries', 'FitNet', 'Similarity']
 
 # %% ../../nbs/distill/losses.ipynb #soft-target
-def SoftTarget(pred: torch.Tensor,          # Student predictions
-               teacher_pred: torch.Tensor,  # Teacher predictions
+def SoftTarget(pred: torch.Tensor,
+               teacher_pred: torch.Tensor,
                T: float = 5,                # Temperature for softening
                **kwargs
 ) -> torch.Tensor:
@@ -21,16 +21,16 @@ def SoftTarget(pred: torch.Tensor,          # Student predictions
     return nn.KLDivLoss(reduction='batchmean')(student_soft, teacher_soft) * (T * T)
 
 # %% ../../nbs/distill/losses.ipynb #logits
-def Logits(pred: torch.Tensor,          # Student predictions
-           teacher_pred: torch.Tensor,  # Teacher predictions
+def Logits(pred: torch.Tensor,
+           teacher_pred: torch.Tensor,
            **kwargs
 ) -> torch.Tensor:
     "Direct logit matching between student and teacher"
     return F.mse_loss(pred, teacher_pred)
 
 # %% ../../nbs/distill/losses.ipynb #mutual
-def Mutual(pred: torch.Tensor,          # Student predictions
-           teacher_pred: torch.Tensor,  # Teacher predictions
+def Mutual(pred: torch.Tensor,
+           teacher_pred: torch.Tensor,
            **kwargs
 ) -> torch.Tensor:
     "KL divergence between student and teacher"
@@ -39,8 +39,8 @@ def Mutual(pred: torch.Tensor,          # Student predictions
     return nn.KLDivLoss(reduction='batchmean')(student_log_prob, teacher_prob)
 
 # %% ../../nbs/distill/losses.ipynb #u16okq651fd
-def DecoupledKD(pred: torch.Tensor,          # Student logits (B, C)
-                teacher_pred: torch.Tensor,  # Teacher logits (B, C)
+def DecoupledKD(pred: torch.Tensor,
+                teacher_pred: torch.Tensor,
                 T: float = 4,                # Temperature for softening
                 alpha: float = 1.0,          # Weight for target-class KD (TCKD)
                 beta: float = 8.0,           # Weight for non-target-class KD (NCKD)
@@ -64,8 +64,6 @@ def DecoupledKD(pred: torch.Tensor,          # Student logits (B, C)
     tckd = F.kl_div(student_tckd.clamp(min=1e-7).log(), teacher_tckd, reduction='batchmean')
 
     if normalize:
-        # NKD: extract C-1 non-target logits, softmax ONLY over them
-        # (eliminates denominator pollution from the dominant target class)
         B, C = pred.shape
         student_nt = (pred / T)[~gt_mask].view(B, C - 1)
         teacher_nt = (teacher_pred / T)[~gt_mask].view(B, C - 1)
@@ -82,8 +80,8 @@ def DecoupledKD(pred: torch.Tensor,          # Student logits (B, C)
     return (alpha * tckd + beta * nckd) * (T * T)
 
 # %% ../../nbs/distill/losses.ipynb #attention
-def Attention(fm_s: dict[str, torch.Tensor],  # Student feature maps {name: tensor}
-              fm_t: dict[str, torch.Tensor],  # Teacher feature maps {name: tensor}
+def Attention(fm_s: dict[str, torch.Tensor],
+              fm_t: dict[str, torch.Tensor],
               p: int = 2,                     # Power for attention computation
               **kwargs
 ) -> torch.Tensor:
@@ -98,8 +96,8 @@ def Attention(fm_s: dict[str, torch.Tensor],  # Student feature maps {name: tens
     return total_loss
 
 # %% ../../nbs/distill/losses.ipynb #activation-boundaries
-def ActivationBoundaries(fm_s: dict[str, torch.Tensor],  # Student feature maps
-                         fm_t: dict[str, torch.Tensor],  # Teacher feature maps
+def ActivationBoundaries(fm_s: dict[str, torch.Tensor],
+                         fm_t: dict[str, torch.Tensor],
                          m: float = 2,                   # Boundary margin
                          **kwargs
 ) -> torch.Tensor:
@@ -114,8 +112,8 @@ def ActivationBoundaries(fm_s: dict[str, torch.Tensor],  # Student feature maps
     return total_loss
 
 # %% ../../nbs/distill/losses.ipynb #fitnet
-def FitNet(fm_s: dict[str, torch.Tensor],  # Student feature maps
-           fm_t: dict[str, torch.Tensor],  # Teacher feature maps
+def FitNet(fm_s: dict[str, torch.Tensor],
+           fm_t: dict[str, torch.Tensor],
            **kwargs
 ) -> torch.Tensor:
     "FitNets: direct feature map matching (Romero et al.)"
@@ -125,8 +123,8 @@ def FitNet(fm_s: dict[str, torch.Tensor],  # Student feature maps
     return total_loss
 
 # %% ../../nbs/distill/losses.ipynb #similarity
-def Similarity(fm_s: dict[str, torch.Tensor],  # Student feature maps
-               fm_t: dict[str, torch.Tensor],  # Teacher feature maps
+def Similarity(fm_s: dict[str, torch.Tensor],
+               fm_t: dict[str, torch.Tensor],
                pred: torch.Tensor,             # Student predictions (unused, for API consistency)
                p: int = 2,                     # Normalization power
                **kwargs
