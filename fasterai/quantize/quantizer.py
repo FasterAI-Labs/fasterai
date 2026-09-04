@@ -352,12 +352,37 @@ def _first_input(dataloader: Any) -> torch.Tensor:
         raise TypeError(f"Calibration data must yield tensors, got {type(inputs).__name__}.")
     return inputs
 
+
+_WEIGHTED_TARGETS = _CONV_TARGETS + (torch.ops.aten.linear.default,)
+
+
+def _pt2e_weight_layers(graph_module) -> list[str]:
+    "Source layer names whose weight a converted pt2e graph reads through a dequantize node"
+    names = []
+    for node in graph_module.graph.nodes:
+        if node.op != 'call_function' or node.target not in _WEIGHTED_TARGETS: continue
+        weight = node.args[1] if len(node.args) > 1 else None
+        if not isinstance(weight, torch.fx.Node) or 'dequantize_per' not in str(weight.target): continue
+        stack = node.meta.get('nn_module_stack')
+        if stack: names.append(next(reversed(stack.values()))[0])
+    return names
+
+
+def _quantized_weight_layers(model: nn.Module) -> list[str]:
+    "Names of the layers this model holds quantized: a torchao weight, an FX module, or a pt2e Q/DQ pair"
+    # an FX flow packs the weight behind a METHOD; a module it left in floating point keeps a Parameter
+    names = [n for n, m in model.named_modules()
+             if _is_quantized_weight(m) or callable(getattr(m, 'weight', None))]
+    return names + (_pt2e_weight_layers(model) if isinstance(model, torch.fx.GraphModule) else [])
+
 # %% ../../nbs/quantize/quantizer.ipynb #fb1fd84a-dcf6-4ec5-966e-6fdd01e1d19b
 import contextlib
 
 _GRAMMAR_ARGS = ('weight_bits', 'act_bits', 'qscheme', 'group_size', 'symmetric',
                  'qdq_placement')  # the precision arguments
 _CONV_TYPES = (nn.Conv1d, nn.Conv2d, nn.Conv3d)
+_CONV_BACKENDS = ('pt2e', 'x86')  # the two we point users to
+_CONV_FIX = 'for convolutions use ' + ' or '.join(f"backend='{b}'" for b in _CONV_BACKENDS) + '.'
 # Embedding/EmbeddingBag are dropped: quantizing them needs an observer this flow never sets.
 _NO_DEFAULT_OBSERVER = (nn.Embedding, nn.EmbeddingBag)
 _LEGACY_QUANT_TYPES = tuple(t for t in get_default_static_quant_module_mappings()
@@ -487,8 +512,7 @@ class Quantizer:
                        if skipped else f"this model has none ({len(convs)} convolution(s))")
                 raise ValueError(
                     f"backend='torchao' rewrites Linear layers only, and {why}: quantization would "
-                    "leave every layer in floating point. Use backend='x86' (or 'pt2e') for a "
-                    "convolutional model.")
+                    f"leave every layer in floating point — {_CONV_FIX}")
             if self.spec.qscheme == 'per_group' and convs:
                 raise ValueError(
                     f"per-group quantization rewrites Linear layers only, and this model has "
@@ -520,6 +544,20 @@ class Quantizer:
                 "quantizes in floating point: `quantize` would hand back an unquantized model "
                 "carrying a quantized model's provenance. Name at least one layer 8, or do not "
                 "quantize this model.")
+
+    def _check_quantized(self, quantized: nn.Module, source: nn.Module) -> None:
+        "Refuse a model with more than one convolution when the backend rewrote none of them"
+        if self.spec.layer_bits: return   # the dict names them itself, and `_check_model` reads it
+        convs = [n for n, m in source.named_modules() if isinstance(m, _CONV_TYPES)]
+        # one convolution is a stem (a ViT patch embedding), not a convolutional model
+        if len(convs) <= 1 or set(convs) & set(_quantized_weight_layers(quantized)): return
+        raise ValueError(f"backend='{self.backend}' {self.method} left {len(convs)} convolution(s) in "
+                         f"floating point ({_preview(convs)}): {_CONV_FIX}")
+
+    def _accept(self, quantized: nn.Module, source: nn.Module) -> nn.Module:
+        "Post-condition, then the precision cell that produced it"
+        self._check_quantized(quantized, source)
+        return self._tag(quantized, source)
 
     def _tag(self, quantized: nn.Module, source: nn.Module) -> nn.Module:
         "Record on the quantized model which precision cell produced it"
@@ -697,12 +735,14 @@ class Quantizer:
         self._check_model(model)
 
         if self.backend == 'torchao':
-            return self._tag(self._quantize_torchao(model), model)
+            return self._accept(self._quantize_torchao(model), model)
 
         # self-contained: a failure surfaces instead of falling through to the legacy flow below
         if self.backend == 'pt2e':
-            return self._tag(self._quantize_pt2e(model, calibration_dl, max_calibration_samples, device), model)
+            quantized = self._quantize_pt2e(model, calibration_dl, max_calibration_samples, device)
+            return self._accept(quantized, model)
 
+        # no post-condition: quantize_dynamic rewrites Linear and RNN by contract, never a convolution
         if self.method == "dynamic":
             if self.verbose: print(f"Performing dynamic quantization with {self.backend} backend")
             self._apply_custom_configs()
@@ -734,12 +774,12 @@ class Quantizer:
                 else:
                     raise e
             
-            if self.verbose: print("Quantization complete")
-            return self._tag(quantized_model, model)
-            
         except Exception as e:
             print(f"Error during quantization: {e}")
             if self.verbose:
                 import traceback
                 traceback.print_exc()
             return model
+        quantized_model = self._accept(quantized_model, model)
+        if self.verbose: print("Quantization complete")
+        return quantized_model
