@@ -40,7 +40,7 @@ class Conv_Decomposer:
     def __init__(self): pass
 
     def decompose(self,
-                  model: nn.Module,                       # The model to decompose
+                  model: nn.Module,
                   percent_removed: float = 0.5,           # Fraction of rank to remove [0, 1)
                   method: str = 'tucker',                 # 'tucker', 'svd', 'spatial', or 'cp'
                   energy_threshold: float | None = None,  # Auto rank via energy retention (0-1)

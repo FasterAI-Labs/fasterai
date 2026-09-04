@@ -18,8 +18,8 @@ __all__ = ['KnowledgeDistillationCallback', 'get_model_layers', 'get_module_by_n
 # %% ../../nbs/distill/distillation_callback.ipynb #03eeecbf
 class KnowledgeDistillationCallback(Callback):
     def __init__(self, 
-                 teacher: nn.Module,                                           # Teacher model
-                 loss: Callable,                                               # Distillation loss function
+                 teacher: nn.Module,
+                 loss: Callable,
                  activations_student: str | list[str] | None = None,           # Student activation layers to match
                  activations_teacher: str | list[str] | None = None,           # Teacher activation layers to match
                  weight: float = 0.5,                                          # Weight for distillation loss
@@ -63,8 +63,8 @@ class KnowledgeDistillationCallback(Callback):
             self.handles_t[name_t] = get_module_by_name(self.teacher, name_t).register_forward_hook(self.get_activation(self.stored_activation_teacher, name_t))
         
     def get_activation(self, 
-                       activation: dict[str, torch.Tensor],  # Dictionary to store activations
-                       name: str                             # Name of the layer
+                       activation: dict[str, torch.Tensor],
+                       name: str
     ) -> Callable:
         "Create a hook function to store activations"
         def hook(model, input, output):
@@ -96,8 +96,8 @@ class KnowledgeDistillationCallback(Callback):
 
 # %% ../../nbs/distill/distillation_callback.ipynb #3378f3af
 def get_model_layers(
-    model: nn.Module,             # Model to inspect
-    get_layer_repr: bool = False    # Whether to return layer representations
+    model: nn.Module,
+    get_layer_repr: bool = False    # Return the layer representations too
 ) -> list[str] | dict[str, str]:
     "Get all layer names in a model, optionally with their representations"
     layers = OrderedDict() if get_layer_repr else []
@@ -119,7 +119,7 @@ def get_model_layers(
 
 
 def get_module_by_name(
-    module: torch.Tensor | nn.Module,  # Module to search in
+    module: torch.Tensor | nn.Module,
     access_string: str                 # Dot-separated path to the submodule
 ) -> nn.Module | None:
     "Access a nested submodule by its name path"
@@ -131,8 +131,8 @@ def get_module_by_name(
 
 # %% ../../nbs/distill/distillation_callback.ipynb #aadbdc14
 def match_feature_layers(
-    student_model: nn.Module,   # Student model
-    teacher_model: nn.Module,   # Teacher model
+    student_model: nn.Module,
+    teacher_model: nn.Module,
     sample_input: torch.Tensor, # Sample input tensor for shape inference
 ) -> dict[str, list[str]]:
     "Find pairs of layers with matching spatial resolutions between student and teacher"
@@ -157,7 +157,7 @@ def match_feature_layers(
         by_res = {}
         for name, shape in shapes.items():
             depth = name.count('.')
-            # Prefer shallowest module; at same depth, prefer later (richer features)
+            # Prefer shallowest module; at same depth, prefer later
             if shape not in by_res or depth <= by_res[shape][1]:
                 by_res[shape] = (name, depth)
         return {res: name for res, (name, _) in by_res.items()}

@@ -20,18 +20,18 @@ __all__ = ['SparsifyCallback']
 class SparsifyCallback(Callback):
     def __init__(self, 
                  sparsity: float | dict[str, float],        # Target sparsity, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict
-                 granularity: str,                           # Type of pruning granularity (e.g., 'weight', 'filter')
-                 context: str,                               # Pruning context ('global' or 'local')
+                 granularity: str,                           # Pruning granularity (e.g., 'weight', 'filter')
+                 context: str,                               # 'global' or 'local'
                  criteria: Criteria,                         # Criteria for determining weights to keep
-                 schedule: Schedule,                         # Pruning schedule to use
-                 lth: bool = False,                          # Whether to use Lottery Ticket Hypothesis approach
+                 schedule: Schedule,
+                 lth: bool = False,                          # Use the Lottery Ticket Hypothesis approach
                  rewind_epoch: int = 0,                      # Epoch to rewind weights to for LTH
-                 reset_end: bool = False,                    # Whether to reset weights after pruning
-                 save_tickets: bool = False,                 # Whether to save pruned models as "winning tickets"
-                 model: nn.Module | None = None,             # Model to sparsify (if None, uses learn.model)
+                 reset_end: bool = False,                    # Reset weights after pruning
+                 save_tickets: bool = False,                 # Save pruned models as "winning tickets"
+                 model: nn.Module | None = None,             # Model to sparsify; None = learn.model
                  round_to: int | None = None,                # Round pruning to multiple of this value
-                 nm: bool = False,                           # Whether to use N:M structured sparsity
-                 layer_type: Type[nn.Module] = nn.Conv2d     # Layer type to apply pruning to
+                 nm: bool = False,                           # Use N:M structured sparsity
+                 layer_type: Type[nn.Module] = nn.Conv2d
     ):
         "Callback to sparsify model during training according to a schedule"
         store_attr()

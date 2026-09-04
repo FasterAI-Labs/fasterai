@@ -17,9 +17,9 @@ import torch.nn as nn
 # %% ../../nbs/prune/prune_callback.ipynb #50598138-7d55-4774-b711-114c1c42dce8
 class PruneCallback(Callback):
     def __init__(self,
-                 pruning_ratio,  # Filters to remove, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict (requires context='local')
+                 pruning_ratio,  # Filters to remove, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict
                  schedule,       # When to prune, from `fasterai.core.schedule` (e.g. one_shot, agp)
-                 context,        # 'local' (per-layer) or 'global' (across the whole model); per-layer dict requires 'local'
+                 context,        # 'local' or 'global'; a dict of ratios needs 'local'
                  criteria,       # How to select filters to prune, from `fasterai.core.criteria`
                  *args,
                  **kwargs
@@ -61,10 +61,8 @@ class PruneCallback(Callback):
 
         self.example_inputs, _ = self.learn.dls.one_batch()
 
-        # Build schedule function for torch-pruning compatibility
         pruning_schedule = self._build_pruning_schedule(self.schedule.sched_func)
-        # sparsity_levels (for logging) tracks a single global ratio; for per-layer dicts
-        # torch-pruning schedules each layer independently, so there is no single level.
+        # nothing single to log for a per-layer dict: torch-pruning schedules each layer on its own
         self.sparsity_levels = [] if self._is_per_layer else pruning_schedule(self.pruning_ratio, total_training_steps)
 
         self.pruner = Pruner(

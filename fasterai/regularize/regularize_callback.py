@@ -20,12 +20,12 @@ __all__ = ['RegularizeCallback']
 # %% ../../nbs/regularize/regularize_callback.ipynb #46f6973d
 class RegularizeCallback(Callback):
     def __init__(self, 
-                 criteria: Criteria | list[Criteria],            # Criteria(s) to use for regularization
-                 granularity: str | list[str],                   # Granularity level(s) for grouping
-                 weight: float = 0.01,                                 # Regularization weight
-                 layer_types: Type | list[Type] = nn.Conv2d,     # Layer types to apply regularization to
-                 schedule: Schedule | None = None,                  # Optional schedule for regularization weight
-                 verbose: bool = False                                 # Whether to report regularization weight
+                 criteria: Criteria | list[Criteria],         # Importance criteria, e.g. large_final
+                 granularity: str | list[str],
+                 weight: float = 0.01,
+                 layer_types: Type | list[Type] = nn.Conv2d,  # Module types to regularize
+                 schedule: Schedule | None = None,            # Optional schedule for the weight
+                 verbose: bool = False                        # Report the weight after each epoch
     ):
         "Callback to apply regularization using criteria during training"
         store_attr()
@@ -47,14 +47,12 @@ class RegularizeCallback(Callback):
         self.learn.loss = self.learn.loss_grad.clone()
     
     def _iter_layers(self):
-        "Iterate over matching layers with weights"
         for m in self.learn.model.modules():
             if any(isinstance(m, lt) for lt in self.layer_types) and hasattr(m, 'weight'):
                 yield m
             
     def get_norm(self) -> torch.Tensor:
         "Compute regularization using the specified criteria and granularities"
-        # Pre-filter modules once
         layers = list(self._iter_layers())
         
         layer_regs = []

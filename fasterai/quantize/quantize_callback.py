@@ -16,15 +16,15 @@ import traceback
 import warnings
 
 # %% ../../nbs/quantize/quantize_callback.ipynb #6bc203ce-0e73-454e-8ecc-0ac07327bec0
-_OPT_FLAGS = ('do_wd', 'force_train')  # per-parameter marks fastai sets by WALKING the model
+_OPT_FLAGS = ('do_wd', 'force_train')  # per-parameter marks fastai sets
 
 
 def _batch_sizes(
-    dl,  # A dataloader, or `None`
+    dl,
 ) -> set[int]:
     "Batch sizes `dl` yields — two of them when it keeps a last batch shorter than the rest"
     n, bs = getattr(dl, 'n', 0) or 0, getattr(dl, 'bs', None)
-    if not n or not bs: return set()  # nothing to say about a loader that does not report its length
+    if not n or not bs: return set()
     full, rest = divmod(n, bs)
     sizes = {bs} if full else set()   # fewer items than one batch: the full size is never yielded
     if rest and not getattr(dl, 'drop_last', False): sizes.add(rest)
@@ -32,10 +32,9 @@ def _batch_sizes(
 
 
 def _check_static_batch(
-    dls,  # The `DataLoaders` the fit will iterate
+    dls,
 ) -> None:
     "Refuse dataloaders that do not yield a single batch size, which is all an exported graph runs"
-    # Refused here, not mid-fit, where the shorter last batch would invalidate the training first.
     sizes = sorted({size for name in ('train', 'valid') for size in _batch_sizes(getattr(dls, name, None))})
     if len(sizes) > 1:
         raise ValueError(
@@ -46,21 +45,13 @@ def _check_static_batch(
 
 class QuantizeCallback(Callback):
     """Quantization-Aware Training (QAT), with the FX backends or with the pt2e flow.
-
-    `before_fit` replaces the model with a prepared one that carries fake-quantize modules, and
-    `after_fit` converts that model, leaving it on `learn.model` (and on `learn.quantized_model`).
-    The backend picks the flow: the FX backends ('x86', 'qnnpack', 'fbgemm', 'onednn') rewrite the
-    eager modules with `prepare_qat_fx` and give back an FX quantized model, while 'pt2e' captures
-    the model with `torch.export` and gives back a quantized GRAPH — symmetric INT8 everywhere, which
-    is the form `export_qdq` can write as a QDQ ONNX file. A captured graph runs one batch size only,
-    the one it was captured with."""
+    `before_fit` swaps in a prepared model carrying fake-quantize modules, `after_fit` converts it."""
     def __init__(self, 
                  quantizer: Quantizer | None = None,  # Custom quantizer; its backend decides which flow runs
                  backend: str = 'x86',                # Target backend: 'x86', 'qnnpack', 'fbgemm', 'onednn' or 'pt2e'
                  use_per_tensor: bool = False,        # Force per-tensor quantization (FX backends only)
-                 verbose: bool = False,               # Enable verbose output
+                 verbose: bool = False,
     ):
-        "Initialize the QAT callback."
         store_attr()
         self.original_model = None
         self.qat_model = None  # FX only: the trained model kept aside in case conversion fails
@@ -87,7 +78,6 @@ class QuantizeCallback(Callback):
     def _start_pt2e(self, example_input: torch.Tensor) -> None:
         "Capture the model with torch.export and insert the fake-quantize modules QAT trains through"
         if self.verbose: print("pt2e: capturing the model with torch.export")
-        # No fallback: training the unprepared model would report a QAT run that never happened.
         prepared = _prepare_pt2e(self.learn.model, example_input, self.quantizer.spec,
                                  verbose=self.verbose)
         self._swap_model(_bind_exported_modes(prepared))
@@ -106,7 +96,7 @@ class QuantizeCallback(Callback):
         except Exception as e:
             print(f"Error preparing model for QAT: {e}")
             traceback.print_exc()
-            self.learn.model = self.original_model.to(device)  # restore, and train in floating point
+            self.learn.model = self.original_model.to(device)
 
     def _finish_pt2e(self) -> None:
         "Freeze the observed scales into a quantized graph"
@@ -120,7 +110,7 @@ class QuantizeCallback(Callback):
         try:
             if self.verbose: print("Converting QAT model to fully quantized model")
             self.learn.model = self.learn.model.cpu().eval()
-            self.qat_model = copy.deepcopy(self.learn.model)  # the trained model, before conversion
+            self.qat_model = copy.deepcopy(self.learn.model)
             self._install_quantized(convert_fx(self.learn.model))
         except Exception as e:
             print(f"Error converting QAT model: {e}")
@@ -152,8 +142,6 @@ class QuantizeCallback(Callback):
         try:
             self.learn.create_opt()
         except Exception as e:
-            # A splitter written for the source model may not apply to the prepared one. That is only
-            # fatal when the optimizer it built no longer holds the parameters being trained.
             untracked = self._untracked_params(opt)
             if untracked:
                 raise RuntimeError(
@@ -166,14 +154,11 @@ class QuantizeCallback(Callback):
                           "the fit continues with it.", UserWarning)
             return
         for parameter in (p for group in self.learn.opt.param_lists for p in group):
-            # a mark the old optimizer carried wins; a parameter it never held (a learnable fake-quant
-            # scale, say) keeps what `create_opt` decided for it
             mark = marks.get(id(parameter))
             if mark: self.learn.opt.state[parameter].update(mark)
         if not hypers: return
         for i, group in enumerate(self.learn.opt.hypers):
-            # `fit` gives every group the same lr and wd, so the first one is the right value to carry
-            # over if the prepared model happens to split into more groups than the source did.
+            # `fit` gives every group the same lr and wd, so the first one carries over
             group.update(hypers[min(i, len(hypers) - 1)])
 
     def _untracked_params(self, opt) -> list[str]:
