@@ -34,6 +34,7 @@ class PrecisionCell:
     note: str                  # what it does, and why it does not export when it does not
     default_group_size: int | None = None  # group size the backend picks when the axis is 'per_group'
     qdq_placements: tuple[str, ...] = ()  # Q/DQ placements it can honor, first one its default
+    skips_activations: bool = False  # can leave the activations of a named module in floating point
 
     @property
     def label(self) -> str:
@@ -66,8 +67,9 @@ _AFFINE_FX = ("FX observers keep activations affine (unsigned, non-zero zero-poi
 _CELLS = (
     PrecisionCell('pt2e', 8, 8, ('per_channel', 'per_tensor'), (True, False), False, True,
                   "Symmetric INT8 weights and activations: every zero-point is 0, which is what `export_qdq` "
-                  "writes into a QDQ ONNX graph. The one cell that also chooses where its Q/DQ pairs sit.",
-                  qdq_placements=('per_op', 'skip_conv_add')),
+                  "writes into a QDQ ONNX graph. The one cell that also chooses where its Q/DQ pairs sit, "
+                  "and the one that can leave a named module's activations in floating point.",
+                  qdq_placements=('per_op', 'skip_conv_add'), skips_activations=True),
     PrecisionCell('x86', 8, 8, ('per_channel', 'per_tensor'), (False,), True, False, _AFFINE_FX),
     PrecisionCell('fbgemm', 8, 8, ('per_channel', 'per_tensor'), (False,), True, False, _AFFINE_FX),
     PrecisionCell('onednn', 8, 8, ('per_channel', 'per_tensor'), (False,), True, False, _AFFINE_FX),
@@ -96,13 +98,19 @@ def _backends_where(predicate) -> list[str]:
     return sorted({c.backend for c in _CELLS if predicate(c)})
 
 
+def _per_layer_label(cell: PrecisionCell) -> str:
+    "What a per-layer request may name on this cell: its weights, its activations, or nothing"
+    return ', '.join(part for part, able in (('weights', cell.per_layer),
+                                             ('activations', cell.skips_activations)) if able) or 'no'
+
+
 def precision_table() -> str:
     "Markdown view of `PRECISION_SUPPORT` — the matrix is the code, this is only its rendering"
     head = ("| Backend | Precision | Weight axis | Symmetric | Per-layer | Q/DQ placement | "
             "`export_qdq` | Notes |\n"
             "|---|---|---|---|---|---|---|---|\n")
     rows = [f"| `{c.backend}` | {c.label} | {', '.join(c.qschemes)} | "
-            f"{', '.join(str(s) for s in c.symmetries)} | {'yes' if c.per_layer else 'no'} | "
+            f"{', '.join(str(s) for s in c.symmetries)} | {_per_layer_label(c)} | "
             f"{', '.join(c.qdq_placements) or 'n/a'} | "
             f"{'yes' if c.exports else 'no'} | {c.note} |" for c in _CELLS]
     return head + "\n".join(rows)
@@ -123,6 +131,7 @@ class QuantSpec:
     group_size: int | None = None       # weights sharing one scale (qscheme='per_group')
     layer_bits: dict | None = None      # per-layer widths, when the caller asked for some
     qdq_placement: str | None = None    # where the Q/DQ pairs sit; None on a backend with no such axis
+    skip_activations: tuple[str, ...] | None = None  # modules whose activations stay in floating point
 
     @property
     def label(self) -> str:
@@ -299,6 +308,28 @@ def _resolve_qdq_placement(cell: PrecisionCell, qdq_placement) -> str | None:
     return qdq_placement
 
 
+def _resolve_skip_activations(cell: PrecisionCell, skip_activations) -> tuple[str, ...] | None:
+    "Pick the modules whose activations stay in floating point, refusing a flow that cannot skip one"
+    if skip_activations is None: return None
+    if not isinstance(skip_activations, (list, tuple)):
+        raise _type_error('skip_activations', 'a list of module names (str)', skip_activations)
+    names = tuple(skip_activations)
+    if not names:
+        raise ValueError("`skip_activations=[]` names no module. Pass the name(s) whose activations stay "
+                         "in floating point, or drop the argument.")
+    for name in names:
+        if not isinstance(name, str):
+            raise _type_error('skip_activations entries', 'module names (str)', name)
+    if len(set(names)) != len(names):
+        raise ValueError(f"`skip_activations` names {sorted({n for n in names if names.count(n) > 1})} more "
+                         "than once. Name each module once.")
+    if not cell.skips_activations:
+        raise ValueError(f"backend='{cell.backend}' quantizes its activations for the whole graph at once: "
+                         "it cannot leave one module's activations in floating point. The backend(s) that "
+                         f"can: {_backends_where(lambda c: c.skips_activations)}.")
+    return names
+
+
 def _resolve_symmetry(cell: PrecisionCell, symmetric) -> bool:
     "Pick the symmetry, refusing the one the cell's observers cannot produce"
     if symmetric is None: return cell.default_symmetric
@@ -326,6 +357,7 @@ def _resolve_spec(
     group_size: int | None = None,
     symmetric: bool | None = None,
     qdq_placement: str | None = None,
+    skip_activations: list[str] | None = None,
     use_per_tensor: bool = False,
 ) -> QuantSpec:
     "Resolve the precision grammar into the one `QuantSpec` a backend will apply, or say why it cannot"
@@ -339,6 +371,7 @@ def _resolve_spec(
     group_size = _resolve_group_size(cell, qscheme, group_size)
     symmetric = _resolve_symmetry(cell, symmetric)
     qdq_placement = _resolve_qdq_placement(cell, qdq_placement)
+    skip_activations = _resolve_skip_activations(cell, skip_activations)
     if layer_bits and not cell.per_layer:
         sibling = next((c for c in _CELLS if c.backend == backend and c.per_layer), None)
         if sibling is not None:
@@ -349,4 +382,4 @@ def _resolve_spec(
                          f"{_backends_where(lambda c: c.per_layer)}.")
     return QuantSpec(backend=backend, method=method, weight_bits=weight_bits, act_bits=act_bits,
                      qscheme=qscheme, symmetric=symmetric, group_size=group_size, layer_bits=layer_bits,
-                     qdq_placement=qdq_placement)
+                     qdq_placement=qdq_placement, skip_activations=skip_activations)
