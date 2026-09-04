@@ -29,6 +29,6 @@ include = ["fasterai*"]
 
 [tool.nbdev]
 branch = 'master'
-tst_flags = 'slow'
+tst_flags = 'slow tutorials'
 custom_sidebar = true
 title = 'fasterai'
