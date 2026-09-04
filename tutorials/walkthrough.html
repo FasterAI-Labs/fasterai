@@ -1,0 +1,1884 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="One model from a fine-tune to a deployable INT8 ONNX file">
+
+<title>Walkthrough – fasterai</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.min.js" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" crossorigin="anonymous"></script><script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b85bc7c33db8c58e0ec93c3465666fed.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-ffa28ca3574c7c1c006f0720c7da4793.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-6bb2244a4f196c24337974aec57678df.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-424WWZFZ5F"></script>
+
+<script type="text/javascript">
+
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-424WWZFZ5F', { 'anonymize_ip': true});
+</script>
+<script src="https://cdn.jsdelivr.net/npm/requirejs@2.3.6/require.min.js" integrity="sha384-c9c+LnTbwQ3aujuU7ULEPVvgLs+Fn6fJUvIGTsuu1ZcCf11fiEubah0ttpca4ntM sha384-6V1/AdqZRWk1KAlWbKBlGhN7VG4iE/yAZcO6NZPMF8od0vukrvr0tg4qY6NSrItx" crossorigin="anonymous"></script>
+
+<script type="application/javascript">define('jquery', [],function() {return window.jQuery;})</script>
+
+
+<link rel="stylesheet" href="../styles.css">
+<meta property="og:title" content="Walkthrough – fasterai">
+<meta property="og:description" content="One model from a fine-tune to a deployable INT8 ONNX file">
+<meta property="og:site_name" content="fasterai">
+<meta name="twitter:title" content="Walkthrough – fasterai">
+<meta name="twitter:description" content="One model from a fine-tune to a deployable INT8 ONNX file">
+<meta name="twitter:creator" content="@nathanhubens">
+<meta name="twitter:site" content="@fasterai">
+<meta name="twitter:card" content="summary">
+</head>
+
+<body class="nav-sidebar floating nav-fixed quarto-dark"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = true;
+    const darkModeDefault = authorPrefersDark;
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">fasterai</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="mailto:nathan.hubens@gmail.com?subject=Hello"> <i class="bi bi-chat-right-text" role="img">
+</i> 
+<span class="menu-text">Contact Me</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://github.com/FasterAI-Labs/fasterai/issues"> <i class="bi bi-bug" role="img">
+</i> 
+<span class="menu-text">Report an Issue</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://discord.gg/32BwhJSB9u"> <i class="bi bi-discord" role="img">
+</i> 
+<span class="menu-text">Join the Community</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/FasterAI-Labs/fasterai"> <i class="bi bi-github" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://twitter.com/fasterai"> <i class="bi bi-twitter" role="img" aria-label="FasterAI Twitter">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="Toggle dark mode"><i class="bi"></i></a>
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../tutorials/walkthrough.html">Tutorials</a></li><li class="breadcrumb-item"><a href="../tutorials/walkthrough.html">Walkthrough</a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../overview.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Overview</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quickstart.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quick Start</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">Tutorials</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/walkthrough.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text">Walkthrough</span></a>
+  </div>
+</li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false">
+ <span class="menu-text">Sparse</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/schedules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Schedules</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/sparsifier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsifier</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/sparsify_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsify Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/lottery_ticket.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Lottery Ticket Hypothesis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/transformers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Transformers</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false">
+ <span class="menu-text">Prune</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/prune/pruner.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Pruner</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/prune/prune_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/prune/yolov8.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">YOLOv8</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+ <span class="menu-text">Distill</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/distill/distill_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">KnowledgeDistillation Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
+ <span class="menu-text">Regularize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/regularize/regularize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Regularize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
+ <span class="menu-text">Quantize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/quantize/quantize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantize Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/quantize/deployable_export.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Deployable INT8 Export</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/quantize/quantization_compared.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantization Methods Compared</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
+ <span class="menu-text">Misc</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/misc/bn_folding.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">BatchNorm Folding</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/misc/fc_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Fully-Connected Layer Decomposition</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/misc/conv_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Conv2d Layer Decomposition</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
+ <span class="menu-text">Export</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/export/onnx_export.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">ONNX Export</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false">
+ <span class="menu-text">Analyze</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/analyze/sensitivity.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sensitivity Analysis</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorial_contract.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Tutorial contract</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false">
+ <span class="menu-text">Core</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/granularity.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Granularity</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/criteria.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Criteria</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/schedules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Schedules</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/precision.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Precision</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/ratio.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Ratios</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false">
+ <span class="menu-text">Sparse</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../sparse/sparsifier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsifier</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../sparse/sparsify_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsify Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false">
+ <span class="menu-text">Prune</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../prune/pruner.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Pruner</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../prune/prune_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false">
+ <span class="menu-text">Distill</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../distill/distillation_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Knowledge Distillation</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../distill/losses.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Distillation Losses</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="false">
+ <span class="menu-text">Quantize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-14" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quantize/quantizer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantizer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quantize/quantize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="false">
+ <span class="menu-text">Regularize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-15" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regularize/regularize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Regularize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="false">
+ <span class="menu-text">Analyze</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-16" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../analyze/sensitivity.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sensitivity Analysis</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="false">
+ <span class="menu-text">Misc</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-17" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/bn_folding.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Batch Norm Folding</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/fc_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Fully-Connected Layers Decomposer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/conv_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Check parameter reduction</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/cpu_optimizer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">CPU Optimizer</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="false">
+ <span class="menu-text">Export</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-18" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../export/onnx_exporter.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">ONNX Exporter</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#overview" id="toc-overview" class="nav-link active" data-scroll-target="#overview">Overview</a></li>
+  <li><a href="#data-and-baseline" id="toc-data-and-baseline" class="nav-link" data-scroll-target="#data-and-baseline">1. Data and baseline</a></li>
+  <li><a href="#sparsify" id="toc-sparsify" class="nav-link" data-scroll-target="#sparsify">2. Sparsify</a></li>
+  <li><a href="#prune" id="toc-prune" class="nav-link" data-scroll-target="#prune">3. Prune</a></li>
+  <li><a href="#quantize" id="toc-quantize" class="nav-link" data-scroll-target="#quantize">4. Quantize</a></li>
+  <li><a href="#export" id="toc-export" class="nav-link" data-scroll-target="#export">5. Export</a></li>
+  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary">Summary</a></li>
+  <li><a href="#see-also" id="toc-see-also" class="nav-link" data-scroll-target="#see-also">See Also</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/FasterAI-Labs/fasterai/issues/new" class="toc-action"><i class="bi bi-github"></i>Report an issue</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../tutorials/walkthrough.html">Tutorials</a></li><li class="breadcrumb-item"><a href="../tutorials/walkthrough.html">Walkthrough</a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title">Walkthrough</h1>
+</div>
+
+<div>
+  <div class="description">
+    One model from a fine-tune to a deployable INT8 ONNX file
+  </div>
+</div>
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<!-- WARNING: THIS FILE WAS AUTOGENERATED! DO NOT EDIT! -->
+<section id="overview" class="level2">
+<h2 class="anchored" data-anchor-id="overview">Overview</h2>
+<p>One model through the four steps fasterai composes: <a href="https://FasterAI-Labs.github.io/fasterai/sparse/sparsify_callback.html#sparsifycallback"><code>SparsifyCallback</code></a> zeroes weights during training, <a href="https://FasterAI-Labs.github.io/fasterai/prune/pruner.html#pruner"><code>Pruner</code></a> removes filters, <a href="https://FasterAI-Labs.github.io/fasterai/quantize/quantizer.html#quantizer"><code>Quantizer</code></a> lowers the arithmetic to INT8, <a href="https://FasterAI-Labs.github.io/fasterai/export/onnx_exporter.html#export_qdq"><code>export_qdq</code></a> writes an ONNX file a runtime can read. Every measured number below is printed by a cell on this page.</p>
+<div id="wk003" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fastai.vision.<span class="bu">all</span> <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.sparse.<span class="bu">all</span> <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.prune.<span class="bu">all</span> <span class="im">import</span> <span class="op">*</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.core.<span class="bu">all</span> <span class="im">import</span> quant_spec</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.quantize.quantizer <span class="im">import</span> Quantizer</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.export.<span class="bu">all</span> <span class="im">import</span> export_onnx, export_qdq, qdq_stats, verify_qdq, ONNXModel</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> tempfile, torch_pruning <span class="im">as</span> tp</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> math <span class="im">import</span> sqrt</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>tmp <span class="op">=</span> Path(tempfile.mkdtemp())   <span class="co"># every file this page writes goes here</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div id="wk003b" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> onnx, onnxruntime</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"torch </span><span class="sc">{</span>torch<span class="sc">.</span>__version__<span class="sc">}</span><span class="ss"> | onnx </span><span class="sc">{</span>onnx<span class="sc">.</span>__version__<span class="sc">}</span><span class="ss"> | onnxruntime </span><span class="sc">{</span>onnxruntime<span class="sc">.</span>__version__<span class="sc">}</span><span class="ss"> "</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"| training on </span><span class="sc">{</span>default_device()<span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>torch 2.9.1+cu128 | onnx 1.17.0 | onnxruntime 1.24.1 | training on cuda:0</code></pre>
+</div>
+</div>
+</section>
+<section id="data-and-baseline" class="level2">
+<h2 class="anchored" data-anchor-id="data-and-baseline">1. Data and baseline</h2>
+<p>The cat/dog labels of the PETS dataset, images resized to 64 px.</p>
+<div id="wk005" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>path <span class="op">=</span> untar_data(URLs.PETS)</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>files <span class="op">=</span> get_image_files(path<span class="op">/</span><span class="st">"images"</span>)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> label_func(f): <span class="cf">return</span> f[<span class="dv">0</span>].isupper()</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>dls <span class="op">=</span> ImageDataLoaders.from_name_func(path, files, label_func, item_tfms<span class="op">=</span>Resize(<span class="dv">64</span>))</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>labels <span class="op">=</span> [label_func(f.name) <span class="cf">for</span> f <span class="kw">in</span> dls.valid.items]</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span><span class="bu">len</span>(dls.train_ds)<span class="sc">}</span><span class="ss"> training images, </span><span class="sc">{</span><span class="bu">len</span>(dls.valid_ds)<span class="sc">}</span><span class="ss"> validation images, majority class "</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"</span><span class="sc">{</span><span class="bu">max</span>(<span class="bu">sum</span>(labels), <span class="bu">len</span>(labels)<span class="op">-</span><span class="bu">sum</span>(labels))<span class="op">/</span><span class="bu">len</span>(labels)<span class="sc">:.2%}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>5912 training images, 1478 validation images, majority class 66.91%</code></pre>
+</div>
+</div>
+<div id="wk007" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> report(learn, name):</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">"Validation accuracy with its Wilson 95% interval"</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    n <span class="op">=</span> <span class="bu">len</span>(learn.dls.valid_ds)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">with</span> learn.no_bar(): acc <span class="op">=</span> <span class="bu">float</span>(learn.validate()[<span class="dv">1</span>])</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    k, z <span class="op">=</span> <span class="bu">round</span>(acc<span class="op">*</span>n), <span class="fl">1.96</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    p, d <span class="op">=</span> k<span class="op">/</span>n, <span class="dv">1</span> <span class="op">+</span> z<span class="op">**</span><span class="dv">2</span><span class="op">/</span>n</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    c <span class="op">=</span> p <span class="op">+</span> z<span class="op">**</span><span class="dv">2</span><span class="op">/</span>(<span class="dv">2</span><span class="op">*</span>n)</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    h <span class="op">=</span> z<span class="op">*</span>sqrt(p<span class="op">*</span>(<span class="dv">1</span><span class="op">-</span>p)<span class="op">/</span>n <span class="op">+</span> z<span class="op">**</span><span class="dv">2</span><span class="op">/</span>(<span class="dv">4</span><span class="op">*</span>n<span class="op">**</span><span class="dv">2</span>))</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>name<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>acc<span class="sc">:.2%}</span><span class="ss"> (</span><span class="sc">{</span>k<span class="sc">}</span><span class="ss">/</span><span class="sc">{</span>n<span class="sc">}</span><span class="ss">), Wilson 95% [</span><span class="sc">{</span>(c<span class="op">-</span>h)<span class="op">/</span>d<span class="sc">:.2%}</span><span class="ss">, </span><span class="sc">{</span>(c<span class="op">+</span>h)<span class="op">/</span>d<span class="sc">:.2%}</span><span class="ss">]"</span>)</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> acc</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>stages <span class="op">=</span> []</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> record(name, model, acc<span class="op">=</span><span class="va">None</span>):</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>    <span class="co">"Parameters, MACs at 64 px, state_dict size on disk and share of zeros in the convolutions"</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>    model.<span class="bu">eval</span>()</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>    macs, params <span class="op">=</span> tp.utils.count_ops_and_params(</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>        model, torch.randn(<span class="dv">1</span>, <span class="dv">3</span>, <span class="dv">64</span>, <span class="dv">64</span>).to(<span class="bu">next</span>(model.parameters()).device))</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>    f <span class="op">=</span> tmp<span class="op">/</span><span class="ss">f"</span><span class="sc">{</span>name<span class="sc">}</span><span class="ss">.pth"</span><span class="op">;</span> torch.save(model.state_dict(), f)</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>    w <span class="op">=</span> [m.weight <span class="cf">for</span> m <span class="kw">in</span> model.modules() <span class="cf">if</span> <span class="bu">isinstance</span>(m, nn.Conv2d)]</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>    zeros <span class="op">=</span> <span class="bu">sum</span>(<span class="bu">int</span>((x <span class="op">==</span> <span class="dv">0</span>).<span class="bu">sum</span>()) <span class="cf">for</span> x <span class="kw">in</span> w) <span class="op">/</span> <span class="bu">sum</span>(x.numel() <span class="cf">for</span> x <span class="kw">in</span> w)</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>    stages.append(<span class="bu">dict</span>(stage<span class="op">=</span>name, params<span class="op">=</span>params, macs<span class="op">=</span>macs, mb<span class="op">=</span>f.stat().st_size<span class="op">/</span><span class="fl">1e6</span>,</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>                       zeros<span class="op">=</span>zeros, acc<span class="op">=</span>acc))</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>name<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>params<span class="op">/</span><span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> M parameters, </span><span class="sc">{</span>macs<span class="op">/</span><span class="fl">1e6</span><span class="sc">:.0f}</span><span class="ss"> MMACs, "</span></span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>          <span class="ss">f"</span><span class="sc">{</span>f<span class="sc">.</span>stat()<span class="sc">.</span>st_size<span class="op">/</span><span class="fl">1e6</span><span class="sc">:.1f}</span><span class="ss"> MB state_dict, </span><span class="sc">{</span>zeros<span class="sc">:.1%}</span><span class="ss"> zeros in conv weights"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>A ResNet-18 with its ImageNet weights, fine-tuned for three epochs:</p>
+<div id="wk009" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>learn <span class="op">=</span> vision_learner(dls, resnet18, metrics<span class="op">=</span>accuracy, concat_pool<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>learn.unfreeze()</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>learn.fit_one_cycle(<span class="dv">3</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    progress:not([value]), progress:not([value])::-webkit-progress-bar {
+        background: repeating-linear-gradient(45deg, #7e7e7e, #7e7e7e 10px, #5c5c5c 10px, #5c5c5c 20px);
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style>
+</div>
+<div class="cell-output cell-output-display">
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">epoch</th>
+<th data-quarto-table-cell-role="th">train_loss</th>
+<th data-quarto-table-cell-role="th">valid_loss</th>
+<th data-quarto-table-cell-role="th">accuracy</th>
+<th data-quarto-table-cell-role="th">time</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>0</td>
+<td>0.647689</td>
+<td>0.335134</td>
+<td>0.858593</td>
+<td>00:04</td>
+</tr>
+<tr class="even">
+<td>1</td>
+<td>0.336341</td>
+<td>0.254721</td>
+<td>0.893099</td>
+<td>00:04</td>
+</tr>
+<tr class="odd">
+<td>2</td>
+<td>0.187006</td>
+<td>0.204517</td>
+<td>0.922192</td>
+<td>00:04</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<div id="wk010" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>record(<span class="st">"baseline"</span>, learn.model, report(learn, <span class="st">"baseline"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>baseline: 92.22% (1363/1478), Wilson 95% [90.74%, 93.48%]
+baseline: 11.44 M parameters, 149 MMACs, 45.9 MB state_dict, 0.0% zeros in conv weights</code></pre>
+</div>
+</div>
+<p><code>concat_pool=False</code> gives the head a plain average pool: the exporter of step 5 has no translation for adaptive max pooling.</p>
+</section>
+<section id="sparsify" class="level2">
+<h2 class="anchored" data-anchor-id="sparsify">2. Sparsify</h2>
+<p><a href="https://FasterAI-Labs.github.io/fasterai/sparse/sparsify_callback.html#sparsifycallback"><code>SparsifyCallback</code></a> zeroes weights while training continues:</p>
+<ul>
+<li><strong><code>sparsity=0.5</code></strong> - the fraction of weights to zero</li>
+<li><strong><code>granularity='weight'</code></strong> - individual weights, the model keeps its shape</li>
+<li><strong><code>context='local'</code></strong> - each layer on its own</li>
+<li><strong><code>criteria=large_final</code></strong> - keep the largest final magnitudes</li>
+<li><strong><code>schedule=one_cycle</code></strong> - how the sparsity grows to its target</li>
+</ul>
+<div id="wk013" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>sp_cb <span class="op">=</span> SparsifyCallback(sparsity<span class="op">=</span><span class="fl">0.5</span>, granularity<span class="op">=</span><span class="st">'weight'</span>, context<span class="op">=</span><span class="st">'local'</span>,</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>                         criteria<span class="op">=</span>large_final, schedule<span class="op">=</span>one_cycle)</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>learn.fit_one_cycle(<span class="dv">5</span>, cbs<span class="op">=</span>sp_cb)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Sparsifying weight until a sparsity of 50.00%
+Saving Weights at epoch 0</code></pre>
+</div>
+<div class="cell-output cell-output-display">
+
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    progress:not([value]), progress:not([value])::-webkit-progress-bar {
+        background: repeating-linear-gradient(45deg, #7e7e7e, #7e7e7e 10px, #5c5c5c 10px, #5c5c5c 20px);
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style>
+</div>
+<div class="cell-output cell-output-display">
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">epoch</th>
+<th data-quarto-table-cell-role="th">train_loss</th>
+<th data-quarto-table-cell-role="th">valid_loss</th>
+<th data-quarto-table-cell-role="th">accuracy</th>
+<th data-quarto-table-cell-role="th">time</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>0</td>
+<td>0.179395</td>
+<td>0.468179</td>
+<td>0.849120</td>
+<td>00:07</td>
+</tr>
+<tr class="even">
+<td>1</td>
+<td>0.280292</td>
+<td>0.729538</td>
+<td>0.772666</td>
+<td>00:07</td>
+</tr>
+<tr class="odd">
+<td>2</td>
+<td>0.214267</td>
+<td>0.196754</td>
+<td>0.918809</td>
+<td>00:08</td>
+</tr>
+<tr class="even">
+<td>3</td>
+<td>0.123649</td>
+<td>0.170752</td>
+<td>0.934371</td>
+<td>00:06</td>
+</tr>
+<tr class="odd">
+<td>4</td>
+<td>0.073424</td>
+<td>0.160134</td>
+<td>0.938430</td>
+<td>00:07</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Sparsity at the end of epoch 0: 1.96%
+Sparsity at the end of epoch 1: 20.07%
+Sparsity at the end of epoch 2: 45.86%
+Sparsity at the end of epoch 3: 49.74%
+Sparsity at the end of epoch 4: 50.00%
+Final Sparsity: 50.00%
+
+Sparsity Report:
+--------------------------------------------------------------------------------
+Layer                          Type            Params     Zeros      Sparsity  
+--------------------------------------------------------------------------------
+0.0                            Conv2d          9,408      4,702         49.98%
+0.4.0.conv1                    Conv2d          36,864     18,430        49.99%
+0.4.0.conv2                    Conv2d          36,864     18,430        49.99%
+0.4.1.conv1                    Conv2d          36,864     18,430        49.99%
+0.4.1.conv2                    Conv2d          36,864     18,430        49.99%
+0.5.0.conv1                    Conv2d          73,728     36,862        50.00%
+0.5.0.conv2                    Conv2d          147,456    73,726        50.00%
+0.5.0.downsample.0             Conv2d          8,192      4,094         49.98%
+0.5.1.conv1                    Conv2d          147,456    73,726        50.00%
+0.5.1.conv2                    Conv2d          147,456    73,726        50.00%
+0.6.0.conv1                    Conv2d          294,912    147,453       50.00%
+0.6.0.conv2                    Conv2d          589,824    294,908       50.00%
+0.6.0.downsample.0             Conv2d          32,768     16,382        49.99%
+0.6.1.conv1                    Conv2d          589,824    294,908       50.00%
+0.6.1.conv2                    Conv2d          589,824    294,908       50.00%
+0.7.0.conv1                    Conv2d          1,179,648  589,817       50.00%
+0.7.0.conv2                    Conv2d          2,359,296  1,179,635     50.00%
+0.7.0.downsample.0             Conv2d          131,072    65,534        50.00%
+0.7.1.conv1                    Conv2d          2,359,296  1,179,635     50.00%
+0.7.1.conv2                    Conv2d          2,359,296  1,179,635     50.00%
+--------------------------------------------------------------------------------
+Overall                        all             11,166,912 5,583,371     50.00%</code></pre>
+</div>
+</div>
+<div id="wk014" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>record(<span class="st">"sparsified"</span>, learn.model, report(learn, <span class="st">"sparsified"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>sparsified: 93.84% (1387/1478), Wilson 95% [92.50%, 94.96%]
+sparsified: 11.44 M parameters, 149 MMACs, 45.9 MB state_dict, 50.0% zeros in conv weights</code></pre>
+</div>
+</div>
+<p>Half of the convolution weights are zero and nothing else moved: same parameter count, same MACs, same file on disk. A dense format stores a zero like any other number.</p>
+</section>
+<section id="prune" class="level2">
+<h2 class="anchored" data-anchor-id="prune">3. Prune</h2>
+<p><a href="https://FasterAI-Labs.github.io/fasterai/prune/pruner.html#pruner"><code>Pruner</code></a> removes the filters themselves. It runs once, outside the training loop, and the fit that follows retrains what is left.</p>
+<div id="wk017" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>pruner <span class="op">=</span> Pruner(learn.model, <span class="fl">0.3</span>, <span class="st">'local'</span>, large_final,</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>                example_inputs<span class="op">=</span>torch.randn(<span class="dv">1</span>, <span class="dv">3</span>, <span class="dv">64</span>, <span class="dv">64</span>).to(default_device()))</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>pruner.prune_model()</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>record(<span class="st">"pruned"</span>, learn.model)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Ignoring output layer: 1.8
+Total ignored layers: 1
+pruned: 5.59 M parameters, 74 MMACs, 22.4 MB state_dict, 48.8% zeros in conv weights</code></pre>
+</div>
+</div>
+<p>Pruning drops the share of zeros a little: <code>large_final</code> removes the lowest-magnitude filters, which hold more than their share of zeros. The recovery fit re-applies <a href="https://FasterAI-Labs.github.io/fasterai/sparse/sparsify_callback.html#sparsifycallback"><code>SparsifyCallback</code></a>, so the model ends it at 50 % zeros again — its <code>one_cycle</code> schedule ramps the target back up from 0, which is why the intermediate epochs print less: a fresh mask, not the one from step 2.</p>
+<div id="wk019" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>sp_cb <span class="op">=</span> SparsifyCallback(sparsity<span class="op">=</span><span class="fl">0.5</span>, granularity<span class="op">=</span><span class="st">'weight'</span>, context<span class="op">=</span><span class="st">'local'</span>,</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>                         criteria<span class="op">=</span>large_final, schedule<span class="op">=</span>one_cycle)</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>learn.fit_one_cycle(<span class="dv">3</span>, reset_opt<span class="op">=</span><span class="va">True</span>, cbs<span class="op">=</span>sp_cb)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Sparsifying weight until a sparsity of 50.00%
+Saving Weights at epoch 0</code></pre>
+</div>
+<div class="cell-output cell-output-display">
+
+<style>
+    /* Turns off some styling */
+    progress {
+        /* gets rid of default border in Firefox and Opera. */
+        border: none;
+        /* Needs to be in here for Safari polyfill so background images work as expected. */
+        background-size: auto;
+    }
+    progress:not([value]), progress:not([value])::-webkit-progress-bar {
+        background: repeating-linear-gradient(45deg, #7e7e7e, #7e7e7e 10px, #5c5c5c 10px, #5c5c5c 20px);
+    }
+    .progress-bar-interrupted, .progress-bar-interrupted::-webkit-progress-bar {
+        background: #F44336;
+    }
+</style>
+</div>
+<div class="cell-output cell-output-display">
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th">epoch</th>
+<th data-quarto-table-cell-role="th">train_loss</th>
+<th data-quarto-table-cell-role="th">valid_loss</th>
+<th data-quarto-table-cell-role="th">accuracy</th>
+<th data-quarto-table-cell-role="th">time</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>0</td>
+<td>0.272020</td>
+<td>1.469996</td>
+<td>0.773342</td>
+<td>00:05</td>
+</tr>
+<tr class="even">
+<td>1</td>
+<td>0.188387</td>
+<td>0.222212</td>
+<td>0.911367</td>
+<td>00:04</td>
+</tr>
+<tr class="odd">
+<td>2</td>
+<td>0.106858</td>
+<td>0.214357</td>
+<td>0.920162</td>
+<td>00:06</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Sparsity at the end of epoch 0: 10.40%
+Sparsity at the end of epoch 1: 48.30%
+Sparsity at the end of epoch 2: 50.00%
+Final Sparsity: 50.00%
+
+Sparsity Report:
+--------------------------------------------------------------------------------
+Layer                          Type            Params     Zeros      Sparsity  
+--------------------------------------------------------------------------------
+0.0                            Conv2d          6,468      3,232         49.97%
+0.4.0.conv1                    Conv2d          17,424     8,710         49.99%
+0.4.0.conv2                    Conv2d          17,424     8,710         49.99%
+0.4.1.conv1                    Conv2d          17,424     8,710         49.99%
+0.4.1.conv2                    Conv2d          17,424     8,710         49.99%
+0.5.0.conv1                    Conv2d          35,244     17,620        49.99%
+0.5.0.conv2                    Conv2d          71,289     35,642        50.00%
+0.5.0.downsample.0             Conv2d          3,916      1,956         49.95%
+0.5.1.conv1                    Conv2d          71,289     35,642        50.00%
+0.5.1.conv2                    Conv2d          71,289     35,642        50.00%
+0.6.0.conv1                    Conv2d          143,379    71,687        50.00%
+0.6.0.conv2                    Conv2d          288,369    144,180       50.00%
+0.6.0.downsample.0             Conv2d          15,931     7,964         49.99%
+0.6.1.conv1                    Conv2d          288,369    144,180       50.00%
+0.6.1.conv2                    Conv2d          288,369    144,180       50.00%
+0.7.0.conv1                    Conv2d          576,738    288,362       50.00%
+0.7.0.conv2                    Conv2d          1,153,476  576,725       50.00%
+0.7.0.downsample.0             Conv2d          64,082     32,039        50.00%
+0.7.1.conv1                    Conv2d          1,153,476  576,725       50.00%
+0.7.1.conv2                    Conv2d          1,153,476  576,725       50.00%
+--------------------------------------------------------------------------------
+Overall                        all             5,454,856  2,727,341     50.00%</code></pre>
+</div>
+</div>
+<div id="wk020" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>record(<span class="st">"pruned + recovery"</span>, learn.model, report(learn, <span class="st">"pruned + recovery"</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>pruned + recovery: 92.02% (1360/1478), Wilson 95% [90.52%, 93.29%]
+pruned + recovery: 5.59 M parameters, 74 MMACs, 22.4 MB state_dict, 50.0% zeros in conv weights</code></pre>
+</div>
+</div>
+<p>Removing filters halves the parameter count, the MACs and the <code>state_dict</code>, and the model ends the recovery fit at 50 % zeros again. The accuracy after recovery sits inside the baseline’s interval.</p>
+</section>
+<section id="quantize" class="level2">
+<h2 class="anchored" data-anchor-id="quantize">4. Quantize</h2>
+<p><code>Quantizer(backend='pt2e')</code> captures the model with <code>torch.export</code> and rewrites it to compute in INT8. Static quantization reads the activation ranges off calibration data, so it needs a loader.</p>
+<div id="wk023" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>BATCH <span class="op">=</span> <span class="dv">2</span>   <span class="co"># torch.export captures ONE batch size, and 1478 = 739 x 2</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> learn.model.cpu().<span class="bu">eval</span>()</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>quantizer <span class="op">=</span> Quantizer(backend<span class="op">=</span><span class="st">'pt2e'</span>, method<span class="op">=</span><span class="st">'static'</span>)</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>qmodel <span class="op">=</span> quantizer.quantize(model, calibration_dl<span class="op">=</span>dls.train.new(bs<span class="op">=</span>BATCH),</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>                            max_calibration_samples<span class="op">=</span><span class="dv">64</span>)</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(quantizer.spec.as_dict())</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(quant_spec(qmodel).label, <span class="st">"| exportable:"</span>, quant_spec(qmodel).exports)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>{'backend': 'pt2e', 'method': 'static', 'weight_bits': 8, 'act_bits': 8, 'qscheme': 'per_channel', 'symmetric': True, 'group_size': None, 'layer_bits': None, 'qdq_placement': 'per_op'}
+W8A8 | exportable: True</code></pre>
+</div>
+</div>
+<p><code>W8A8</code> is the resolved precision — 8-bit weights and activations, per-channel scales, a zero-point of 0 everywhere, as <a href="https://FasterAI-Labs.github.io/fasterai/export/onnx_exporter.html#qdq_stats"><code>qdq_stats</code></a> shows below — and it travels with the model. That graph still stores float weights and simulates the quantization; the INT8 artifact is the next step’s file.</p>
+</section>
+<section id="export" class="level2">
+<h2 class="anchored" data-anchor-id="export">5. Export</h2>
+<p><a href="https://FasterAI-Labs.github.io/fasterai/export/onnx_exporter.html#export_qdq"><code>export_qdq</code></a> writes the quantize/dequantize pairs into the graph instead of folding them away. <a href="https://FasterAI-Labs.github.io/fasterai/export/onnx_exporter.html#export_onnx"><code>export_onnx</code></a> exports the float model, to have something to compare the file against.</p>
+<div id="wk026" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>sample, _ <span class="op">=</span> dls.valid.new(bs<span class="op">=</span>BATCH).one_batch()</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>sample <span class="op">=</span> sample.cpu()</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>fp32_path <span class="op">=</span> export_onnx(model, sample, tmp<span class="op">/</span><span class="st">"pets_fp32.onnx"</span>, dynamic_batch<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>qdq_path <span class="op">=</span> export_qdq(qmodel, sample, tmp<span class="op">/</span><span class="st">"pets_qdq.onnx"</span>)</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>fp32_mb, qdq_mb <span class="op">=</span> fp32_path.stat().st_size<span class="op">/</span><span class="fl">1e6</span>, qdq_path.stat().st_size<span class="op">/</span><span class="fl">1e6</span></span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>fp32_path<span class="sc">.</span>name<span class="sc">}</span><span class="ss"> </span><span class="sc">{</span>fp32_mb<span class="sc">:.1f}</span><span class="ss"> MB | </span><span class="sc">{</span>qdq_path<span class="sc">.</span>name<span class="sc">}</span><span class="ss"> </span><span class="sc">{</span>qdq_mb<span class="sc">:.1f}</span><span class="ss"> MB "</span></span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"(</span><span class="sc">{</span>fp32_mb<span class="op">/</span>qdq_mb<span class="sc">:.1f}</span><span class="ss">x smaller on disk)"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[torch.onnx] Obtain model graph for `GraphModule([...]` with `torch.export.export(..., strict=False)`...
+[torch.onnx] Obtain model graph for `GraphModule([...]` with `torch.export.export(..., strict=False)`... ✅
+[torch.onnx] Run decomposition...
+[torch.onnx] Run decomposition... ✅
+[torch.onnx] Translate the graph into ONNX...
+[torch.onnx] Translate the graph into ONNX... ✅
+pets_fp32.onnx 22.4 MB | pets_qdq.onnx 5.9 MB (3.8x smaller on disk)</code></pre>
+</div>
+</div>
+<div id="wk027" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(qdq_stats(qdq_path).as_dict())</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="bu">sum</span>(<span class="dv">1</span> <span class="cf">for</span> m <span class="kw">in</span> model.modules() <span class="cf">if</span> <span class="bu">isinstance</span>(m, (nn.Conv2d, nn.Linear))),</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>      <span class="st">"weight tensors (convolutions and Linear layers) in the model"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>{'n_quantize': 36, 'n_dequantize': 58, 'n_per_channel': 22, 'n_nonzero_zero_point': 0, 'n_unquantized_conv_add': 0}
+22 weight tensors (convolutions and Linear layers) in the model</code></pre>
+</div>
+</div>
+<p><a href="https://FasterAI-Labs.github.io/fasterai/export/onnx_exporter.html#qdq_stats"><code>qdq_stats</code></a> counts what the exporter actually wrote:</p>
+<ul>
+<li><code>n_quantize</code> / <code>n_dequantize</code> — the pairs a runtime reads to build its INT8 kernels.</li>
+<li><code>n_per_channel</code> — one node per quantized weight tensor, which is the count printed above.</li>
+<li><code>n_nonzero_zero_point</code> — 0, what a symmetric quantizer promised, read off the file.</li>
+<li><code>n_unquantized_conv_add</code> — 0: every <code>Add</code> reads its inputs through a pair.</li>
+</ul>
+<p><a href="https://FasterAI-Labs.github.io/fasterai/export/onnx_exporter.html#verify_qdq"><code>verify_qdq</code></a> reports how often the exported graph and the PyTorch model it came from predict the same class — worth reading only if the reference predictions vary, so this checks first.</p>
+<div id="wk030" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>probe, _ <span class="op">=</span> dls.valid.new(bs<span class="op">=</span><span class="dv">256</span>).one_batch()</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>probe <span class="op">=</span> probe.cpu()</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> torch.no_grad():</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>    reference <span class="op">=</span> torch.cat([qmodel(c).argmax(<span class="op">-</span><span class="dv">1</span>) <span class="cf">for</span> c <span class="kw">in</span> probe.split(BATCH)])</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a><span class="cf">assert</span> <span class="bu">len</span>(reference.unique()) <span class="op">&gt;</span> <span class="dv">1</span>, <span class="st">"the reference predicts a single class: agreement would be vacuous"</span></span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"reference predictions per class:"</span>, torch.bincount(reference, minlength<span class="op">=</span><span class="dv">2</span>).tolist())</span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a>agreement <span class="op">=</span> verify_qdq(qmodel, qdq_path, probe, n_batches<span class="op">=</span><span class="bu">len</span>(probe)<span class="op">//</span>BATCH)</span>
+<span id="cb28-10"><a href="#cb28-10" aria-hidden="true" tabindex="-1"></a>k, n, z <span class="op">=</span> <span class="bu">round</span>(agreement<span class="op">*</span><span class="bu">len</span>(probe)), <span class="bu">len</span>(probe), <span class="fl">1.96</span></span>
+<span id="cb28-11"><a href="#cb28-11" aria-hidden="true" tabindex="-1"></a>p, d <span class="op">=</span> k<span class="op">/</span>n, <span class="dv">1</span> <span class="op">+</span> z<span class="op">**</span><span class="dv">2</span><span class="op">/</span>n</span>
+<span id="cb28-12"><a href="#cb28-12" aria-hidden="true" tabindex="-1"></a>c, h <span class="op">=</span> p <span class="op">+</span> z<span class="op">**</span><span class="dv">2</span><span class="op">/</span>(<span class="dv">2</span><span class="op">*</span>n), z<span class="op">*</span>sqrt(p<span class="op">*</span>(<span class="dv">1</span><span class="op">-</span>p)<span class="op">/</span>n <span class="op">+</span> z<span class="op">**</span><span class="dv">2</span><span class="op">/</span>(<span class="dv">4</span><span class="op">*</span>n<span class="op">**</span><span class="dv">2</span>))</span>
+<span id="cb28-13"><a href="#cb28-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"argmax agreement: </span><span class="sc">{</span>agreement<span class="sc">:.3f}</span><span class="ss"> (</span><span class="sc">{</span>k<span class="sc">}</span><span class="ss">/</span><span class="sc">{</span>n<span class="sc">}</span><span class="ss">), Wilson 95% [</span><span class="sc">{</span>(c<span class="op">-</span>h)<span class="op">/</span>d<span class="sc">:.2%}</span><span class="ss">, </span><span class="sc">{</span>(c<span class="op">+</span>h)<span class="op">/</span>d<span class="sc">:.2%}</span><span class="ss">]"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>reference predictions per class: [182, 74]
+argmax agreement: 1.000 (256/256), Wilson 95% [98.52%, 100.00%]</code></pre>
+</div>
+</div>
+<p>The reference predicts both classes, so the comparison is not vacuous, and the graph answers the same class on every probe input. This is agreement with the quantized PyTorch model, not accuracy: it says the file runs at the batch size it was captured with and computes what its source graph computes.</p>
+<p>Agreement is not accuracy: the last cell scores the exported file over the whole validation set through <a href="https://FasterAI-Labs.github.io/fasterai/export/onnx_exporter.html#onnxmodel"><code>ONNXModel</code></a> (onnxruntime behind a PyTorch-like call).</p>
+<div id="wk033" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb30"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>onnx_model <span class="op">=</span> ONNXModel(qdq_path)</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>k <span class="op">=</span> n <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> x, y <span class="kw">in</span> dls.valid.new(bs<span class="op">=</span>BATCH):</span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>    k <span class="op">+=</span> <span class="bu">int</span>((onnx_model(x.cpu()).argmax(<span class="op">-</span><span class="dv">1</span>) <span class="op">==</span> y.cpu()).<span class="bu">sum</span>())<span class="op">;</span> n <span class="op">+=</span> <span class="bu">len</span>(y)</span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a>z <span class="op">=</span> <span class="fl">1.96</span><span class="op">;</span> p, d <span class="op">=</span> k<span class="op">/</span>n, <span class="dv">1</span> <span class="op">+</span> z<span class="op">**</span><span class="dv">2</span><span class="op">/</span>n</span>
+<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a>c, h <span class="op">=</span> p <span class="op">+</span> z<span class="op">**</span><span class="dv">2</span><span class="op">/</span>(<span class="dv">2</span><span class="op">*</span>n), z<span class="op">*</span>sqrt(p<span class="op">*</span>(<span class="dv">1</span><span class="op">-</span>p)<span class="op">/</span>n <span class="op">+</span> z<span class="op">**</span><span class="dv">2</span><span class="op">/</span>(<span class="dv">4</span><span class="op">*</span>n<span class="op">**</span><span class="dv">2</span>))</span>
+<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"exported INT8 graph: </span><span class="sc">{</span>k<span class="op">/</span>n<span class="sc">:.2%}</span><span class="ss"> (</span><span class="sc">{</span>k<span class="sc">}</span><span class="ss">/</span><span class="sc">{</span>n<span class="sc">}</span><span class="ss">), Wilson 95% [</span><span class="sc">{</span>(c<span class="op">-</span>h)<span class="op">/</span>d<span class="sc">:.2%}</span><span class="ss">, </span><span class="sc">{</span>(c<span class="op">+</span>h)<span class="op">/</span>d<span class="sc">:.2%}</span><span class="ss">]"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>exported INT8 graph: 91.95% (1359/1478), Wilson 95% [90.45%, 93.23%]</code></pre>
+</div>
+</div>
+<div id="wk034" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb32"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span><span class="st">'stage'</span><span class="sc">:&lt;20}{</span><span class="st">'params'</span><span class="sc">:&gt;10}{</span><span class="st">'MMACs'</span><span class="sc">:&gt;8}{</span><span class="st">'conv zeros'</span><span class="sc">:&gt;12}{</span><span class="st">'state_dict'</span><span class="sc">:&gt;12}{</span><span class="st">'accuracy'</span><span class="sc">:&gt;11}</span><span class="ss">"</span>)</span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> s <span class="kw">in</span> stages:</span>
+<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a>    acc <span class="op">=</span> <span class="ss">f"</span><span class="sc">{</span>s[<span class="st">'acc'</span>]<span class="sc">:.2%}</span><span class="ss">"</span> <span class="cf">if</span> s[<span class="st">'acc'</span>] <span class="kw">is</span> <span class="kw">not</span> <span class="va">None</span> <span class="cf">else</span> <span class="st">"-"</span></span>
+<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"</span><span class="sc">{</span>s[<span class="st">'stage'</span>]<span class="sc">:&lt;20}{</span>s[<span class="st">'params'</span>]<span class="op">/</span><span class="fl">1e6</span><span class="sc">:&gt;9.2f}</span><span class="ss">M</span><span class="sc">{</span>s[<span class="st">'macs'</span>]<span class="op">/</span><span class="fl">1e6</span><span class="sc">:&gt;8.0f}</span><span class="ss">"</span></span>
+<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a>          <span class="ss">f"</span><span class="sc">{</span>s[<span class="st">'zeros'</span>]<span class="sc">:&gt;12.1%}{</span>s[<span class="st">'mb'</span>]<span class="sc">:&gt;11.1f}</span><span class="ss">M</span><span class="sc">{</span>acc<span class="sc">:&gt;11}</span><span class="ss">"</span>)</span>
+<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"MMACs: multiply-accumulates for one 64x64 image | conv zeros: share of zeros in the "</span></span>
+<span id="cb32-7"><a href="#cb32-7" aria-hidden="true" tabindex="-1"></a>      <span class="st">"convolution weights"</span>)</span>
+<span id="cb32-8"><a href="#cb32-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"</span><span class="ch">\n</span><span class="ss">ONNX files: FP32 </span><span class="sc">{</span>fp32_mb<span class="sc">:.1f}</span><span class="ss"> MB | QDQ INT8 </span><span class="sc">{</span>qdq_mb<span class="sc">:.1f}</span><span class="ss"> MB, "</span></span>
+<span id="cb32-9"><a href="#cb32-9" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"which scored </span><span class="sc">{</span>k<span class="op">/</span>n<span class="sc">:.2%}</span><span class="ss"> (</span><span class="sc">{</span>k<span class="sc">}</span><span class="ss">/</span><span class="sc">{</span>n<span class="sc">}</span><span class="ss">) on the validation set"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>stage                   params   MMACs  conv zeros  state_dict   accuracy
+baseline                11.44M     149        0.0%       45.9M     92.22%
+sparsified              11.44M     149       50.0%       45.9M     93.84%
+pruned                   5.59M      74       48.8%       22.4M          -
+pruned + recovery        5.59M      74       50.0%       22.4M     92.02%
+MMACs: multiply-accumulates for one 64x64 image | conv zeros: share of zeros in the convolution weights
+
+ONNX files: FP32 22.4 MB | QDQ INT8 5.9 MB, which scored 91.95% (1359/1478) on the validation set</code></pre>
+</div>
+</div>
+<p>The four accuracies of this run are successive stages of one model, not the arms of an A/B — each row carries a different training budget — and their Wilson intervals overlap, so this page ranks none of them.</p>
+<p><strong>Scope.</strong> ResNet-18 with ImageNet weights, PETS cat/dog labels, 64 px: three epochs of fine-tuning, five with <a href="https://FasterAI-Labs.github.io/fasterai/sparse/sparsify_callback.html#sparsifycallback"><code>SparsifyCallback</code></a>, one <a href="https://FasterAI-Labs.github.io/fasterai/prune/pruner.html#pruner"><code>Pruner</code></a> step, three recovery epochs, calibration on 64 training images. Single run, no seed fixed; device and library versions printed at the top, the ONNX graphs scored on CPU through onnxruntime. Accuracy is measured on the 1478 validation images with its Wilson 95% interval. This page measures no latency.</p>
+</section>
+<section id="summary" class="level2">
+<h2 class="anchored" data-anchor-id="summary">Summary</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 19%">
+<col style="width: 19%">
+<col style="width: 61%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Step</th>
+<th>Tool</th>
+<th>What it gives you</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Sparsify</td>
+<td><code>SparsifyCallback(sparsity, granularity, context, criteria, schedule)</code></td>
+<td>Weights zeroed during training, following the schedule</td>
+</tr>
+<tr class="even">
+<td>Prune</td>
+<td><code>Pruner(model, pruning_ratio, context, criteria)</code></td>
+<td>Filters removed, a structurally smaller model</td>
+</tr>
+<tr class="odd">
+<td>Quantize</td>
+<td><code>Quantizer(backend='pt2e', method='static').quantize(model, calibration_dl)</code></td>
+<td>An INT8 graph, tagged with the precision that produced it</td>
+</tr>
+<tr class="even">
+<td>Export</td>
+<td><code>export_qdq(model, sample, path)</code></td>
+<td>An ONNX file whose Q/DQ pairs survived the export</td>
+</tr>
+<tr class="odd">
+<td>Inspect</td>
+<td><code>qdq_stats(path)</code></td>
+<td>Node counts, per-channel count, zero-point audit</td>
+</tr>
+<tr class="even">
+<td>Verify</td>
+<td><code>verify_qdq(model, path, samples)</code></td>
+<td>Argmax agreement between the exported graph and PyTorch</td>
+</tr>
+<tr class="odd">
+<td>Score</td>
+<td><code>ONNXModel(path)</code></td>
+<td>The exported file called like a PyTorch model</td>
+</tr>
+<tr class="even">
+<td>Cost</td>
+<td><code>tp.utils.count_ops_and_params</code></td>
+<td>MACs and parameters, at a given input size</td>
+</tr>
+</tbody>
+</table>
+<p><code>sparsity</code> and <code>pruning_ratio</code> are fractions in [0, 1]. <code>criteria</code> and <code>schedule</code> take the objects exported by <code>fasterai.core.criteria</code> and <code>fasterai.core.schedule</code>.</p>
+<hr>
+</section>
+<section id="see-also" class="level2">
+<h2 class="anchored" data-anchor-id="see-also">See Also</h2>
+<ul>
+<li><a href="sparse/sparsify_callback.html">Sparsify Callback</a> - The sparsification step on its own</li>
+<li><a href="prune/prune_callback.html">Prune Callback</a> - Pruning inside the training loop instead of between fits</li>
+<li><a href="quantize/deployable_export.html">Deployable INT8 Export</a> - The precision grammar and the QDQ export in detail</li>
+<li><a href="distill/distill_callback.html">Knowledge Distillation</a> - Training a student model from a teacher</li>
+<li><a href="misc/bn_folding.html">BatchNorm Folding</a> - Folding BatchNorm layers into their convolutions</li>
+<li><a href="misc/fc_decomposer.html">FC Decomposition</a> - Factorizing fully-connected layers</li>
+<li><a href="analyze/sensitivity.html">Sensitivity Analysis</a> - Per-layer compression targets</li>
+</ul>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/FasterAI-Labs\.github\.io\/fasterai");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+      &nbsp;
+    </div>   
+    <div class="nav-footer-center">
+<p>© By Nathan Hubens</p>
+<div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/FasterAI-Labs/fasterai/issues/new" class="toc-action"><i class="bi bi-github"></i>Report an issue</a></li></ul></div></div>
+    <div class="nav-footer-right">
+      &nbsp;
+    </div>
+  </div>
+</footer>
+
+
+
+
+</body></html>
