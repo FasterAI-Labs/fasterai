@@ -1,5 +1,8 @@
 project:
   type: website
+  render:
+    - "*"
+    - "!tests/**"
 
 format:
   html:
