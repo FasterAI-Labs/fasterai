@@ -77,6 +77,7 @@ try:
     from torch.ao.quantization.quantizer.xnnpack_quantizer import (XNNPACKQuantizer,
                                                                    get_symmetric_quantization_config)
     from torch.ao.quantization.quantizer.xnnpack_quantizer_utils import QuantizationConfig
+    from torch.ao.quantization.quantizer.utils import _get_module_name_filter
     from torch.ao.quantization.observer import (HistogramObserver, PerChannelMinMaxObserver,
                                                 MovingAveragePerChannelMinMaxObserver)
     from torch.ao.quantization.fake_quantize import FusedMovingAvgObsFakeQuantize
@@ -206,25 +207,110 @@ def _skip_conv_add_annotation(
     return len(edges), n_adds
 
 
+def _module_nodes(
+    graph_module,
+    name: str,
+) -> list:
+    "Every operator node torch attributes to the module `name` or to anything under it"
+    belongs = _get_module_name_filter(name)
+    return [node for node in graph_module.graph.nodes
+            if node.op == 'call_function' and belongs(node)]
+
+
+def _spec_references(spec) -> tuple:
+    "The edges or nodes `spec` is defined against: the one it shares, or the ones it derives from"
+    if isinstance(spec, SharedQuantizationSpec): return (spec.edge_or_node,)
+    return tuple(getattr(spec, 'derived_from', None) or ())
+
+
+def _sweep_shared_specs(graph_module, dead: set) -> int:
+    "Clear every spec still defined against a cleared edge, chains included; report how many"
+    swept, changed = 0, True
+    while changed:
+        changed = False
+        for node in graph_module.graph.nodes:
+            annotation = _node_annotation(node)
+            if annotation is None: continue
+            if any(reference in dead for reference in _spec_references(annotation.output_qspec)):
+                annotation.output_qspec = None
+                dead.add(node)
+                swept += 1
+                changed = True
+            for source, spec in list(annotation.input_qspec_map.items()):
+                if any(reference in dead for reference in _spec_references(spec)):
+                    del annotation.input_qspec_map[source]
+                    dead.add((source, node))
+                    swept += 1
+                    changed = True
+    return swept
+
+
+def _skip_node_activations(
+    graph_module,
+    nodes,
+) -> tuple[int, int]:
+    "Leave the activations `nodes` produce in floating point; report THIS call's (entries cleared, specs swept)"
+    cleared, dead = 0, set()
+    for node in nodes:
+        annotation = _node_annotation(node)
+        if annotation is not None:
+            if annotation.output_qspec is not None:
+                annotation.output_qspec = None; cleared += 1
+            dead.add(node)
+        for user in node.users:
+            user_annotation = _node_annotation(user)
+            if user_annotation is None: continue
+            if user_annotation.input_qspec_map.pop(node, None) is not None: cleared += 1
+            dead.add((node, user))
+    return cleared, _sweep_shared_specs(graph_module, dead)
+
+
+def _is_observed(node) -> bool:
+    "Whether the annotation observes this node's output: its own qspec, or a consumer's input entry"
+    annotation = _node_annotation(node)
+    if annotation is not None and annotation.output_qspec is not None: return True
+    return any(user_annotation is not None and node in user_annotation.input_qspec_map
+               for user_annotation in map(_node_annotation, node.users))
+
+
+def _observed_ancestor(graph_module, name: str) -> str | None:
+    "The closest module containing `name` whose activations ARE observed, or None when there is none"
+    parts = name.split('.')
+    for depth in range(len(parts) - 1, 0, -1):
+        ancestor = '.'.join(parts[:depth])
+        if any(map(_is_observed, _module_nodes(graph_module, ancestor))): return ancestor
+    return None
+
+
 class _PlacementQuantizer(_TorchQuantizer):
-    "A pt2e quantizer that annotates like `inner`, then moves the Q/DQ pairs where `placement` says"
+    "A pt2e quantizer that annotates like `inner`, then takes the Q/DQ pairs off the edges it is told to"
     # Wraps XNNPACKQuantizer rather than subclassing it: `prepare_pt2e` reads only the four members below.
     def __init__(self,
                  inner,
-                 placement: str,
+                 placement: str | None,
+                 skip_activations: tuple[str, ...] = (),
     ):
         self.inner, self.placement = inner, placement
+        self.skip_activations = tuple(skip_activations)
         self.n_adds = self.n_skipped = 0  # read back by `_prepare_pt2e`, which refuses a zero match
+        self.sites, self.edits, self.fixes = {}, {}, {}  # per name: nodes observed, edits, and the fix
 
     def transform_for_annotation(self, model):
         "Whatever `inner` does to the graph before it is annotated"
         return self.inner.transform_for_annotation(model)
 
     def annotate(self, model):
-        "Annotate with `inner`, then take the Q/DQ pairs off the edges `placement` names"
-        # inner.annotate runs propagate_annotation last, so this pass sees the shared specs too
+        "Annotate with `inner`, then take the Q/DQ pairs off the edges this quantizer was told to clear"
+        # inner.annotate runs propagate_annotation last, so these passes see the shared specs too
         model = self.inner.annotate(model)
-        self.n_skipped, self.n_adds = _skip_conv_add_annotation(model)
+        nodes = {name: _module_nodes(model, name) for name in self.skip_activations}
+        # the state BEFORE either pass: what a name would have left in floating point
+        self.sites = {name: [n for n in named if _is_observed(n)] for name, named in nodes.items()}
+        self.fixes = {name: _observed_ancestor(model, name)
+                      for name, sites in self.sites.items() if not sites}
+        if self.placement == 'skip_conv_add':
+            self.n_skipped, self.n_adds = _skip_conv_add_annotation(model)
+        self.edits = {name: _skip_node_activations(model, named) for name, named in nodes.items()}
         return model
 
     def validate(self, model) -> None:
@@ -249,10 +335,11 @@ def _pt2e_quantizer(
     else:
         config = get_symmetric_quantization_config(is_per_channel=per_channel, is_qat=is_qat)
     quantizer = XNNPACKQuantizer().set_global(config)
-    # `getattr`: a spec pickled before this field existed unpickles with it UNSET
+    # `getattr`: a spec pickled before these fields existed unpickles with them UNSET
     placement = getattr(spec, 'qdq_placement', None)
-    if placement in (None, 'per_op'): return quantizer
-    return _PlacementQuantizer(quantizer, placement)
+    skip_activations = getattr(spec, 'skip_activations', None) or ()
+    if placement in (None, 'per_op') and not skip_activations: return quantizer
+    return _PlacementQuantizer(quantizer, placement, skip_activations)
 
 
 def _model_device(model: nn.Module) -> torch.device:
@@ -262,22 +349,34 @@ def _model_device(model: nn.Module) -> torch.device:
     return tensor.device if tensor is not None else torch.device('cpu')
 
 
-def _check_placement_applied(
+def _check_annotation_applied(
     quantizer,
     spec: QuantSpec,
     verbose: bool,
 ) -> None:
-    "Refuse a Q/DQ placement that matched nothing, so that a recorded placement is one that ran"
-    if not isinstance(quantizer, _PlacementQuantizer): return  # 'per_op': nothing to move
-    if not quantizer.n_skipped:
+    "Refuse an annotation pass that matched nothing, so that a recorded request is one that ran"
+    if not isinstance(quantizer, _PlacementQuantizer): return  # 'per_op' and no skip: nothing was moved
+    if quantizer.placement == 'skip_conv_add' and not quantizer.n_skipped:
         raise ValueError(
             f"qdq_placement='{spec.qdq_placement}' found no conv→add edge to leave unquantized in this "
             f"model: it has {quantizer.n_adds} add node(s), none of them fed by a single-user "
             "convolution partition. It is a residual-network placement — a block whose branch ends in "
             "a convolution feeding the addition. Use qdq_placement='per_op' for this model.")
+    if quantizer.fixes:
+        fixes = '; '.join(f"'{name}' → " + (f"name '{ancestor}' instead" if ancestor else
+                                            'name the block that carries the observer')
+                          for name, ancestor in quantizer.fixes.items())
+        raise ValueError("`skip_activations` names modules whose activations pt2e does not observe (a "
+                         "fused conv→BN→ReLU partition is observed at one node, a folded batch norm at "
+                         f"none): {fixes}.")
     if verbose:
-        print(f"pt2e: qdq_placement='{spec.qdq_placement}' left {quantizer.n_skipped} of "
-              f"{quantizer.n_adds} addition(s) reading a convolution at accumulator precision")
+        if quantizer.n_skipped:
+            print(f"pt2e: qdq_placement='{spec.qdq_placement}' left {quantizer.n_skipped} of "
+                  f"{quantizer.n_adds} addition(s) reading a convolution at accumulator precision")
+        for name, nodes in quantizer.sites.items():
+            cleared, swept = quantizer.edits[name]
+            print(f"pt2e: skip_activations='{name}' left {len(nodes)} activation site(s) in floating "
+                  f"point ({cleared} annotation entry(ies) cleared, {swept} shared spec(s) swept)")
 
 
 def _prepare_pt2e(
@@ -302,7 +401,7 @@ def _prepare_pt2e(
     prepare = prepare_qat_pt2e if spec.method == 'qat' else prepare_pt2e
     quantizer = _pt2e_quantizer(spec)
     prepared = prepare(exported.module(), quantizer)
-    _check_placement_applied(quantizer, spec, verbose)
+    _check_annotation_applied(quantizer, spec, verbose)
     return prepared
 
 
@@ -379,7 +478,7 @@ def _quantized_weight_layers(model: nn.Module) -> list[str]:
 import contextlib
 
 _GRAMMAR_ARGS = ('weight_bits', 'act_bits', 'qscheme', 'group_size', 'symmetric',
-                 'qdq_placement')  # the precision arguments
+                 'qdq_placement', 'skip_activations')  # the precision arguments
 _CONV_TYPES = (nn.Conv1d, nn.Conv2d, nn.Conv3d)
 _CONV_BACKENDS = ('pt2e', 'x86')  # the two we point users to
 _CONV_FIX = 'for convolutions use ' + ' or '.join(f"backend='{b}'" for b in _CONV_BACKENDS) + '.'
@@ -409,13 +508,18 @@ class Quantizer:
                  group_size: int | None = None,          # Weights sharing one scale (qscheme='per_group')
                  symmetric: bool | None = None,          # Force a zero-point of 0 everywhere; None = the backend's own
                  qdq_placement: str | None = None,       # Where the Q/DQ pairs sit: 'per_op', 'skip_conv_add' ('pt2e' only); None = the backend's own
+                 skip_activations: list[str] | None = None,  # Modules whose activations stay in floating point ('pt2e')
     ):
         """Initialize a quantizer with specified backend and options.
 
         `qdq_placement='skip_conv_add'` is opt-in and changes the arithmetic: it leaves the residual
         branch's convolution feeding its addition without a Q/DQ pair, so that result arrives at
         accumulator precision. What a runtime then does with that graph is the runtime's own
-        property, and the effect on a TRAINED model's accuracy is UNMEASURED here."""
+        property, and the effect on a TRAINED model's accuracy is UNMEASURED here.
+
+        `skip_activations=['features.0']` leaves the activations that module produces in floating
+        point while its weights and its input stay INT8; the operator reading them then takes a
+        float input, so what a runtime makes of that graph is UNMEASURED here too."""
         store_attr()
         self._custom_mapping = qconfig_mapping is not None
         if self._custom_mapping and self._asked_precision():
@@ -423,7 +527,8 @@ class Quantizer:
                              "precision arguments cannot be applied on top of it. Keep one of the two.")
         self.spec = _resolve_spec(backend, method, weight_bits=weight_bits, act_bits=act_bits,
                                   qscheme=qscheme, group_size=group_size, symmetric=symmetric,
-                                  qdq_placement=qdq_placement, use_per_tensor=use_per_tensor)
+                                  qdq_placement=qdq_placement, skip_activations=skip_activations,
+                                  use_per_tensor=use_per_tensor)
         self.method = self.spec.method  # on torchao, naming a precision names the recipe that applies it
 
         if self.spec.layer_bits and self.method == 'dynamic':
@@ -497,6 +602,13 @@ class Quantizer:
 
     def _check_model(self, model: nn.Module) -> None:
         "Refuse a model the resolved precision cannot be applied to, before it is touched"
+        # `getattr`: a spec pickled before this field existed unpickles with it UNSET
+        named_now = {n for n, _ in model.named_modules()}
+        unknown = [n for n in (getattr(self.spec, 'skip_activations', None) or ())
+                   if n not in named_now]
+        if unknown:
+            raise ValueError(f"`skip_activations` names modules this model does not have: {unknown}. "
+                             "Use the names `model.named_modules()` reports.")
         if not (self.spec.layer_bits or self.backend == 'torchao'): return
         named = dict(model.named_modules())
         missing = [n for n in (self.spec.layer_bits or {}) if n not in named]
