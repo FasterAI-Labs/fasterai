@@ -254,6 +254,11 @@ def _producers(graph) -> dict:
     return {output: node for node in graph.node for output in node.output}
 
 
+def _zero_point_name(node) -> str:
+    "The value a Q/DQ node reads as its zero-point, empty when it takes none (an optional input)"
+    return node.input[2] if len(node.input) > 2 else ""
+
+
 # ONNX counterpart of the quantizer's `_CONV_EPILOGUE_TARGETS`; shorter because pt2e folds the bn in.
 _CONV_EPILOGUE_OPS = ("Relu",)
 
@@ -330,6 +335,11 @@ def _refusal(output_path: Path, proto, message: str, error: type[Exception] = Va
 def _accept_produced(produced: int) -> str:
     "The sentence pointing a refusal at the opset the exporter produced"
     return f"Pass opset_version={produced} to accept the graph as it was produced."
+
+
+def _accept_int8() -> str:
+    "The sentence pointing a refusal at the activation dtype the exporter writes by default"
+    return "Export without activation_dtype='uint8' to get the graph as it was produced."
 
 
 def _declared_opset(proto) -> int | None:
@@ -427,12 +437,14 @@ def _lower_produced_opset(proto, requested: int, output_path: Path) -> int | Non
     return lowered
 
 
-def _ort_outputs(path: Path, sample: torch.Tensor) -> list[np.ndarray]:
+def _ort_outputs(path: Path, sample: torch.Tensor, *, optimize: bool = True) -> list[np.ndarray]:
     "Every output ONNX Runtime produces for `sample`, running the graph on the CPU"
     # not `ONNXModel`: that wrapper reads the FIRST output only
     import onnxruntime as ort
 
-    session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    options = ort.SessionOptions()
+    if not optimize: options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    session = ort.InferenceSession(str(path), sess_options=options, providers=["CPUExecutionProvider"])
     feed = {session.get_inputs()[0].name: sample.detach().cpu().numpy()}
     return [np.asarray(output) for output in session.run(None, feed)]
 
@@ -452,6 +464,18 @@ def _output_difference(before: list[np.ndarray],
     return f"max |Δ| = {max(deltas):.3e}"
 
 
+def _produced_outputs(proto, output_path: Path, sample: torch.Tensor, why: str, *,
+                      optimize: bool = True) -> list[np.ndarray]:
+    "Run the graph as PRODUCED, so a failure there is refused as the exporter's, not a rewrite's"
+    try:
+        return _ort_outputs(output_path, sample, optimize=optimize)
+    except Exception as error:
+        raise _refusal(
+            output_path, proto,
+            f"export_qdq could not run the graph it PRODUCED — {type(error).__name__}: {error} — so there "
+            f"is nothing to check {why}") from error
+
+
 def _write_lowered(proto, output_path: Path, sample: torch.Tensor, produced: int) -> None:
     "Put a lowered graph in place of the produced one — but only once it has been checked and run"
     import onnx
@@ -465,15 +489,10 @@ def _write_lowered(proto, output_path: Path, sample: torch.Tensor, produced: int
             f"produced.",
             error=ImportError)
 
-    # run the produced graph first and alone: a failure here is the exporter's, not the rewrite's
-    try:
-        produced_out = _ort_outputs(output_path, sample)
-    except Exception as error:
-        raise _refusal(
-            output_path, proto,
-            f"export_qdq could not run the graph it PRODUCED — {type(error).__name__}: {error} — so there "
-            f"is nothing to check a rewrite to opset {requested} against. Pass "
-            f"opset_version={produced} to get that graph as it was produced, unchecked.") from error
+    produced_out = _produced_outputs(
+        proto, output_path, sample,
+        f"a rewrite to opset {requested} against. Pass "
+        f"opset_version={produced} to get that graph as it was produced, unchecked.")
 
     # beside the produced file, so a relative external-data reference still resolves from there
     lowered_path = output_path.with_name(output_path.name + ".lowered")
@@ -500,6 +519,150 @@ def _write_lowered(proto, output_path: Path, sample: torch.Tensor, produced: int
             f"changes how the axes are spelled and nothing else. {_accept_produced(produced)}") from None
     lowered_path.replace(output_path)
 
+# %% ../../nbs/export/onnx_exporter.ipynb #e2a39d1f
+def _no_uint8(what: str) -> ValueError:
+    "The error that says why a graph's activation pairs cannot be written as uint8"
+    return ValueError(f"export_qdq cannot write uint8 activations for this graph: {what} "
+                      f"{_accept_int8()}")
+
+
+def _activation_pairs(graph) -> list[tuple]:
+    "Every `QuantizeLinear` of a graph, with the `DequantizeLinear` nodes that read its output"
+    dims_by_name = {name: tuple(t.dims) for name, t in _graph_constants(graph).items()}
+    producers = _producers(graph)
+    quantized = {node.output[0]: node for node in graph.node if node.op_type == "QuantizeLinear"}
+    readers: dict[str, list] = {name: [] for name in quantized}
+
+    for value in graph.output:
+        if value.name in quantized:
+            raise _no_uint8(f"the QuantizeLinear output '{value.name}' is a graph output, and moving it "
+                            f"to uint8 would change the type this graph returns.")
+    for node in graph.node:
+        for index, name in enumerate(node.input):
+            if name not in quantized: continue
+            if node.op_type == "DequantizeLinear" and index == 0: readers[name].append(node)
+            else: raise _no_uint8(f"node '{node.name or node.op_type}' reads the QuantizeLinear output "
+                                  f"'{name}' without dequantizing it.")
+        # a DequantizeLinear reads either a weight constant — through a Cast or a Q/DQ pair — or a
+        # QuantizeLinear output; anything else and this rewrite cannot tell the two apart
+        if (node.op_type == "DequantizeLinear" and node.input[0] not in quantized
+                and _weight_dims(node.input[0], dims_by_name, producers) is None):
+            raise _no_uint8(f"node '{node.name or node.op_type}' dequantizes '{node.input[0]}', which is "
+                            f"neither a graph constant nor a QuantizeLinear output.")
+    return [(node, readers[name]) for name, node in quantized.items()]
+
+
+def _rewrite_activations_uint8(graph) -> int:
+    "Move every activation Q/DQ pair to a uint8 zero-point of 128, and count the pairs moved"
+    from onnx import numpy_helper
+
+    constants = _graph_constants(graph)
+    pairs = _activation_pairs(graph)
+    unsigned: dict[str, str] = {}
+    for quantize, readers in pairs:
+        for node in (quantize, *readers):
+            name = _zero_point_name(node)
+            if not name:
+                raise _no_uint8(f"node '{node.name or node.op_type}' omits its zero-point, and this "
+                                f"rewrite only moves zero-points it can read.")
+            if name not in constants:
+                raise _no_uint8(f"the zero-point of node '{node.name or node.op_type}' is not a graph "
+                                f"constant.")
+            zero_point = constants[name]
+            if np.any(numpy_helper.to_array(zero_point) != 0):
+                raise _no_uint8(f"the zero-point of node '{node.name or node.op_type}' is not 0, so the "
+                                f"model records symmetric=False.")
+            if name not in unsigned:  # never in place: one constant may be shared with a weight pair
+                shifted = numpy_helper.from_array(np.full(tuple(zero_point.dims), 128, np.uint8),
+                                                  f"{name}_uint8")
+                graph.initializer.append(shifted)
+                unsigned[name] = shifted.name
+            node.input[2] = unsigned[name]
+    written = {quantize.output[0] for quantize, _ in pairs}
+    kept = [value for value in graph.value_info if value.name not in written]
+    del graph.value_info[:]
+    graph.value_info.extend(kept)
+    # after the walk: deleting a Constant node while iterating would skip the one behind it
+    for source in unsigned: _drop_unused_constant(graph, source)
+    return len(pairs)
+
+
+def _check_uint8_activations(graph, expected: int) -> None:
+    "Read a rewritten graph back: unsigned activation pairs at 128, weight pairs still int8 at 0"
+    from onnx import numpy_helper
+
+    constants = _graph_constants(graph)
+
+    def zero_point(node):
+        "What `node` reads as its zero-point, refusing anything this rewrite cannot have written"
+        name = _zero_point_name(node)
+        if name not in constants:
+            raise _no_uint8(f"node '{node.name or node.op_type}' came out of the rewrite without a "
+                            f"constant zero-point.")
+        return numpy_helper.to_array(constants[name])
+
+    quantize = [node for node in graph.node if node.op_type == "QuantizeLinear"]
+    if len(quantize) != expected:
+        raise _no_uint8(f"the rewrite moved {expected} pair(s), and the graph it came out of carries "
+                        f"{len(quantize)} QuantizeLinear node(s).")
+    for node in quantize:
+        if node.input[0] in constants:
+            raise _no_uint8(f"node '{node.name or node.op_type}' quantizes the graph constant "
+                            f"'{node.input[0]}' rather than an activation.")
+    produced = {node.output[0] for node in quantize}
+    dequantize = [node for node in graph.node if node.op_type == "DequantizeLinear"]
+    for node in (*quantize, *[n for n in dequantize if n.input[0] in produced]):
+        value = zero_point(node)
+        if value.dtype != np.uint8 or np.any(value != 128):
+            raise _no_uint8(f"node '{node.name or node.op_type}' came out of the rewrite with a "
+                            f"zero-point of type {value.dtype} that is not 128 everywhere.")
+    for node in dequantize:
+        if node.input[0] in produced: continue  # the activation half, read just above
+        value = zero_point(node)
+        if value.dtype != np.int8 or np.any(value != 0):
+            raise _no_uint8(f"the weight pair of node '{node.name or node.op_type}' came out of the "
+                            f"rewrite with a zero-point of type {value.dtype} that is not 0 everywhere.")
+
+
+def _write_uint8_activations(proto, output_path: Path, sample: torch.Tensor) -> None:
+    "Put the uint8-activation graph in place of the produced one, once it has been checked and run"
+    import onnx
+
+    produced_out = _produced_outputs(proto, output_path, sample,
+                                     f"its uint8 activation pairs against. {_accept_int8()}",
+                                     optimize=False)
+    try:
+        pairs = _rewrite_activations_uint8(proto.graph)
+        _check_uint8_activations(proto.graph, pairs)
+    except ValueError as error:
+        raise _refusal(output_path, proto, str(error)) from None
+
+    # beside the produced file, so a relative external-data reference still resolves from there
+    uint8_path = output_path.with_name(output_path.name + ".uint8")
+    try:
+        onnx.save(proto, str(uint8_path))
+        onnx.checker.check_model(str(uint8_path))
+        uint8_out = _ort_outputs(uint8_path, sample, optimize=False)
+        _ort_outputs(uint8_path, sample)  # and it has to load and run optimized too
+    except Exception as error:
+        uint8_path.unlink(missing_ok=True)
+        raise _refusal(
+            output_path, proto,
+            f"export_qdq moved the activation pairs of the graph it produced to uint8, and the result is "
+            f"not a graph ONNX accepts and runs — {type(error).__name__}: {error}. "
+            f"{_accept_int8()}") from error
+
+    difference = _output_difference(produced_out, uint8_out)
+    if difference is not None:
+        uint8_path.unlink(missing_ok=True)
+        raise _refusal(
+            output_path, proto,
+            f"export_qdq moved the activation pairs of the graph it produced to uint8, and the rewritten "
+            f"graph does not compute what the produced one computes ({difference}). The rewrite moves "
+            f"every activation zero-point from 0 to 128 and changes nothing else. "
+            f"{_accept_int8()}") from None
+    uint8_path.replace(output_path)
+
 # %% ../../nbs/export/onnx_exporter.ipynb #467ceb9a
 def export_qdq(
     model: nn.Module,                      # Quantized model, typically from `Quantizer(backend='pt2e')`
@@ -507,13 +670,20 @@ def export_qdq(
     output_path: str | Path,               # Output .onnx file path
     *,
     opset_version: int = 18,               # ONNX opset the file must declare; a lower one is rewritten and verified
+    activation_dtype: str = 'int8',        # 'int8' (zero-point 0) or 'uint8' (zero-point 128); weights stay int8
     dynamic_batch: bool = False,           # Ask for a dynamic batch dimension (experimental)
     input_names: list[str] | None = None,
     output_names: list[str] | None = None,
 ) -> Path:
-    "Export a quantized model to ONNX, keeping its Q/DQ node pairs intact"
+    """Export a quantized model to ONNX, keeping its Q/DQ node pairs intact — with
+    `activation_dtype='uint8'` the activation pairs are written with the same scales and zero-point 128,
+    and the weight pairs stay int8."""
+    if activation_dtype not in ('int8', 'uint8'):
+        raise ValueError(f"Unknown activation_dtype: {activation_dtype}. Use 'int8' or 'uint8'.")
     _check_exportable(model)
     _require("onnx", "onnxscript", install_hint="pip install onnx onnxscript")
+    # the uint8 rewrite is checked by running the file it writes
+    if activation_dtype == 'uint8': _require("onnxruntime", install_hint="pip install onnxruntime")
     import onnx
 
     output_path = Path(output_path)
@@ -556,6 +726,8 @@ def export_qdq(
     # `lowered` is 0 when nothing moved; only `None` means the rewrite never ran
     if lowered is not None: _write_lowered(proto, output_path, sample, produced)
     elif patched: onnx.save(proto, str(output_path))
+    # last: the activation rewrite reads the file every other check has already accepted
+    if activation_dtype == 'uint8': _write_uint8_activations(proto, output_path, sample)
     return output_path
 
 # %% ../../nbs/export/onnx_exporter.ipynb #f7838382
@@ -565,8 +737,9 @@ class QDQStats:
     n_quantize: int              # number of QuantizeLinear nodes
     n_dequantize: int            # number of DequantizeLinear nodes
     n_per_channel: int           # nodes whose scale holds one value per channel
-    n_nonzero_zero_point: int    # nodes whose zero-point is not all zeros
+    n_nonzero_zero_point: int    # nodes whose zero-point is not all zeros (128 on a uint8 pair)
     n_unquantized_conv_add: int  # `Add` inputs read straight from a `Conv`
+    n_uint8: int = 0             # nodes whose zero-point is an explicit uint8 constant
 
     def as_dict(self) -> dict[str, int]: return asdict(self)
 
@@ -589,18 +762,20 @@ def qdq_stats(
                              f"'{name}' is not a graph constant.")
         return numpy_helper.to_array(constants[name])  # only the few tensors actually looked at
 
-    n_quantize = n_dequantize = n_per_channel = n_nonzero_zero_point = 0
+    n_quantize = n_dequantize = n_per_channel = n_nonzero_zero_point = n_uint8 = 0
     for node in graph.node:
         if node.op_type == "QuantizeLinear": n_quantize += 1
         elif node.op_type == "DequantizeLinear": n_dequantize += 1
         else: continue
         # axis cannot be used: exporters write it on per-tensor nodes too
         if _constant(node.input[1], node, "scale").size > 1: n_per_channel += 1
-        # zero_point is an optional third input: when omitted it is implicitly zero
-        zero_point = node.input[2] if len(node.input) > 2 else ""
-        if zero_point and np.any(_constant(zero_point, node, "zero_point") != 0): n_nonzero_zero_point += 1
+        zero_point = _zero_point_name(node)  # omitted: implicitly zero, in the quantized tensor's type
+        if zero_point:
+            value = _constant(zero_point, node, "zero_point")
+            if np.any(value != 0): n_nonzero_zero_point += 1
+            if value.dtype == np.uint8: n_uint8 += 1
     return QDQStats(n_quantize, n_dequantize, n_per_channel, n_nonzero_zero_point,
-                    _direct_conv_add_edges(graph))
+                    _direct_conv_add_edges(graph), n_uint8)
 
 # %% ../../nbs/export/onnx_exporter.ipynb #1eaa6ad7
 def verify_qdq(
