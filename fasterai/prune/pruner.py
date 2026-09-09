@@ -11,6 +11,7 @@ from torch_pruning.pruner import function
 
 from fastcore.basics import store_attr
 from ..core.criteria import *
+from ..core.parametrize import _is_parametrized
 from ..core.ratio import as_fraction
 from fastai.vision.all import *
 
@@ -36,6 +37,11 @@ class Pruner():
     ):
         if not any(p.requires_grad for p in model.parameters()):
             raise ValueError("No parameter requires grad: call model.requires_grad_(True) before pruning.")
+        parametrized = next((n for n, m in model.named_modules() if _is_parametrized(m)), None)
+        if parametrized is not None:
+            raise ValueError(f"'{parametrized}' computes its weight from a parametrization (e.g. "
+                             "FakeQuantizeCallback's rounding), which torch-pruning cannot rewrite: bake "
+                             "or strip it before pruning.")
         store_attr()
         self.example_inputs = example_inputs.as_subclass(torch.Tensor).clone().to(next(model.parameters()).device)  # a subclass breaks the dependency trace, the clone escapes inference mode
         self.num_heads = {}
