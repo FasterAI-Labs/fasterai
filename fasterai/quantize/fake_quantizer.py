@@ -17,14 +17,14 @@ _EPS = torch.finfo(torch.float32).eps  # a zero range would otherwise give a zer
 _OBSERVERS = ('static', 'dynamic')
 
 
-def _check_bits(name: str, value):
+def _check_bits(name: str, value, tail: str = 'or None to stay in floating point'):
     "Validate one bit width; None means the tensor stays in floating point"
     if value is None: return None
     if isinstance(value, bool) or not isinstance(value, int):
-        raise _type_error(name, 'an int in [2, 16], or None to stay in floating point', value)
+        raise _type_error(name, f'an int in [2, 16], {tail}', value)
     if not 2 <= value <= 16:
         raise ValueError(f"`{name}={value}` is not a width this engine rounds to: pass an int in [2, 16], "
-                         "or None to stay in floating point.")
+                         f"{tail}.")
     return value
 
 
