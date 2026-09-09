@@ -108,6 +108,7 @@ website:
       - section: Quantize
         contents:
         - quantize/quantizer.ipynb
+        - quantize/fake_quantizer.ipynb
         - quantize/quantize_callback.ipynb
       - section: Regularize
         contents:
