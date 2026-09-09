@@ -9,6 +9,7 @@ import torch.nn as nn
 from fastcore.basics import *
 from fastcore.imports import *
 from .granularity import *
+from .parametrize import _master
 from typing import Callable
 
 # %% auto #0
@@ -132,7 +133,7 @@ class Criteria():
         if self.needs_update and not hasattr(m, '_old_weights'):
             m.register_buffer("_old_weights", m._init_weights.clone())
             
-        wf = self.f(m.weight)
+        wf = self.f(_master(m))   # a parametrized module computes m.weight: scoring it scores the rounding
         
         if self.needs_init: wi = self.f(m._init_weights)
         if self.needs_update: wi = self.f(m._old_weights)
@@ -168,7 +169,7 @@ class Criteria():
     def update_weights(self, m):
         "Update the reference weights for criteria that track changes"
         if self.needs_update: 
-            m._old_weights = m.weight.data.clone()
+            m._old_weights = _master(m).data.clone()
 
 # %% ../../nbs/core/criteria.ipynb #abfb02c7-d6b7-4666-aff4-449745f06ac0
 def magnitude_criteria(transform_fn, **kwargs):
@@ -264,8 +265,9 @@ def grad_crit(
         dim = listify(Granularities.get_dim(m, g))
     except KeyError:
         raise ValueError(f'Invalid granularity "{g}" for module type {type(m).__name__}')
-    
-    if m.weight.grad is not None:
-        return (m.weight * m.weight.grad)[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)
+
+    w = _master(m)   # the gradient reaches the master; a computed weight is not a leaf and carries none
+    if w.grad is not None:
+        return (w * w.grad)[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)
     else:
-        return m.weight[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)
+        return w[None].pow(2).mean(dim=dim, keepdim=True).squeeze(0)

@@ -171,7 +171,7 @@ FAKE_SPEC_ATTR = '_fasterai_fake_quant_spec'  # attribute `FakeQuantizer` leaves
 
 @dataclass(frozen=True, slots=True)
 class FakeQuantSpec:
-    "The widths a `FakeQuantizer` was asked for — attached to the model it rounds"
+    "The widths a model was rounded to, and whether it trained through them — attached to that model"
     weight_bits: int | None             # None leaves the weights in floating point
     act_bits: int | None                # None leaves the activations in floating point
     qscheme: str
@@ -180,6 +180,7 @@ class FakeQuantSpec:
     group_size: int | None = None       # weights sharing one scale (qscheme='per_group')
     layer_bits: dict | None = None      # per-layer weight widths, when the caller asked for some
     layer_act_bits: dict | None = None  # per-layer activation widths, when the caller asked for some
+    trained: bool = False               # True when the model was fitted through this rounding
 
     @property
     def label(self) -> str:

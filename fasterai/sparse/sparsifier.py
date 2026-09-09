@@ -8,6 +8,7 @@ import torch.nn as nn
 from fastcore.basics import store_attr, true
 from typing import Type
 from ..core.criteria import *
+from ..core.parametrize import _master, _plain_modules, _unparametrize
 from ..core.ratio import as_fraction
 from einops import rearrange
 
@@ -40,10 +41,10 @@ class Sparsifier():
                      model: nn.Module | None = None
     ):
         model = model or self.model
-        for m in model.modules():
+        for m in _plain_modules(model):   # never the containers a parametrization inserts
             if filter_type == 'layer_type' and isinstance(m, self.layer_type):
                 yield m
-            elif filter_type == 'has_weight' and hasattr(m, 'weight'):
+            elif filter_type == 'has_weight' and isinstance(getattr(m, 'weight', None), torch.Tensor):
                 yield m
 
     def _iter_named_layers(self):
@@ -96,7 +97,7 @@ class Sparsifier():
         
         sparsity_map = self._to_sparsity_dict(sparsity)
         
-        mods = list(self.model.modules())
+        mods = list(_plain_modules(self.model))
         for name, m in self._iter_named_layers():
             if m not in sparsity_map:
                 continue
@@ -125,7 +126,7 @@ class Sparsifier():
               m: nn.Module
     ) -> None:
         mask = getattr(m, "_mask", None)
-        if true(mask): m.weight.data.mul_(mask)
+        if true(mask): _master(m).data.mul_(mask)
         if self.granularity == 'filter' and true(m.bias):
             if true(mask): m.bias.data.mul_(mask.squeeze())
     
@@ -135,10 +136,11 @@ class Sparsifier():
         "Reset weights to their initial values"
         model = model or self.model
         for m in self._iter_layers('has_weight', model):
-            init_weights = getattr(m, "_init_weights", m.weight)
+            weight = _master(m)   # a write to a parametrized `m.weight` lands on a computed tensor
+            init_weights = getattr(m, "_init_weights", weight)
             init_biases = getattr(m, "_init_biases", m.bias)
             with torch.no_grad():
-                if true(m.weight): m.weight.copy_(init_weights)
+                if true(weight): weight.copy_(init_weights)
                 if true(m.bias): m.bias.copy_(init_biases)
             self._apply(m)
             if isinstance(m, nn.modules.batchnorm._BatchNorm): m.reset_parameters()
@@ -146,7 +148,7 @@ class Sparsifier():
     def _save_weights(self) -> None:
         "Save initial weights of the model, detached so the model stays copyable"
         for m in self._iter_layers('has_weight'):
-            m.register_buffer("_init_weights", m.weight.detach().clone())
+            m.register_buffer("_init_weights", _master(m).detach().clone())
             bias = getattr(m, 'bias', None)
             if true(bias): m.register_buffer("_init_biases", bias.detach().clone())
                     
@@ -157,6 +159,8 @@ class Sparsifier():
         "Save model without sparsification buffers"
         model = model or self.model
         tmp_model = copy.deepcopy(model)
+        # a ticket is floating-point weights, and torch.save refuses a parametrized model
+        for m in self._iter_layers('has_weight', tmp_model): _unparametrize(m)
         self._reset_weights(tmp_model)
         self._clean_buffers(tmp_model)
         torch.save(tmp_model, path)
@@ -239,8 +243,9 @@ class Sparsifier():
         print("-" * 80)
         
         for name, m in self._iter_named_layers():
-            zeros = torch.sum(m.weight == 0).item()
-            total = m.weight.nelement()
+            weight = _master(m)   # the mask lives on the master, and a rounded weight has zeros of its own
+            zeros = torch.sum(weight == 0).item()
+            total = weight.nelement()
             sparsity_pct = 100.0 * zeros / total if total > 0 else 0
             
             print(f"{name:<30} {m.__class__.__name__:<15} "
