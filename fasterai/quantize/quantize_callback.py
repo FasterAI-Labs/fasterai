@@ -111,7 +111,9 @@ class QuantizeCallback(Callback):
             if self.verbose: print("Converting QAT model to fully quantized model")
             self.learn.model = self.learn.model.cpu().eval()
             self.qat_model = copy.deepcopy(self.learn.model)
-            self._install_quantized(convert_fx(self.learn.model))
+            # under the engine, so the spec records the conversion and not merely the prepare
+            with self.quantizer._quantized_engine():
+                self._install_quantized(convert_fx(self.learn.model))
         except Exception as e:
             print(f"Error converting QAT model: {e}")
             traceback.print_exc()

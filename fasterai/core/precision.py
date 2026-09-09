@@ -132,6 +132,7 @@ class QuantSpec:
     layer_bits: dict | None = None      # per-layer widths, when the caller asked for some
     qdq_placement: str | None = None    # where the Q/DQ pairs sit; None on a backend with no such axis
     skip_activations: tuple[str, ...] | None = None  # modules whose activations stay in floating point
+    engine: str | None = None           # quantized engine the conversion ran under; None when none governs it
 
     @property
     def label(self) -> str:
