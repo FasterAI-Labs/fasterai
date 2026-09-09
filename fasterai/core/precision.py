@@ -7,8 +7,8 @@ import warnings
 from dataclasses import asdict, dataclass
 
 # %% auto #0
-__all__ = ['QSCHEMES', 'WIDTHS', 'QDQ_PLACEMENTS', 'PRECISION_SUPPORT', 'SPEC_ATTR', 'PrecisionCell', 'precision_table',
-           'QuantSpec', 'quant_spec']
+__all__ = ['QSCHEMES', 'WIDTHS', 'QDQ_PLACEMENTS', 'PRECISION_SUPPORT', 'SPEC_ATTR', 'FAKE_SPEC_ATTR', 'NEEDS_GROUP_SIZE',
+           'PrecisionCell', 'precision_table', 'QuantSpec', 'quant_spec', 'FakeQuantSpec', 'fake_quant_spec']
 
 # %% ../../nbs/core/precision.ipynb #precision-cell
 QSCHEMES = ('per_tensor', 'per_channel', 'per_group')  # the weight axes this grammar names
@@ -164,6 +164,38 @@ def quant_spec(
     "The precision `Quantizer` applied to `model`, or `None` when fasterai did not quantize it"
     return getattr(model, SPEC_ATTR, None)
 
+# %% ../../nbs/core/precision.ipynb #fake-quant-spec
+FAKE_SPEC_ATTR = '_fasterai_fake_quant_spec'  # attribute `FakeQuantizer` leaves on the models it rounds
+
+
+@dataclass(frozen=True, slots=True)
+class FakeQuantSpec:
+    "The widths a `FakeQuantizer` was asked for — attached to the model it rounds"
+    weight_bits: int | None             # None leaves the weights in floating point
+    act_bits: int | None                # None leaves the activations in floating point
+    qscheme: str
+    symmetric: bool                     # True when every zero-point is 0
+    observer: str                       # 'static' (scales frozen by calibration) or 'dynamic'
+    group_size: int | None = None       # weights sharing one scale (qscheme='per_group')
+    layer_bits: dict | None = None      # per-layer weight widths, when the caller asked for some
+    layer_act_bits: dict | None = None  # per-layer activation widths, when the caller asked for some
+
+    @property
+    def label(self) -> str:
+        "Short name of the precision, e.g. 'W8A8'; 'F' names a tensor left in floating point"
+        return f"W{self.weight_bits or 'F'}A{self.act_bits or 'F'}"
+
+    def as_dict(self) -> dict:
+        "Plain-dict view, for logging or serialization"
+        return asdict(self)
+
+
+def fake_quant_spec(
+    model,  # Any model, rounded or not
+) -> FakeQuantSpec | None:
+    "The widths `FakeQuantizer` rounded `model` to, or `None` when fasterai did not round it"
+    return getattr(model, FAKE_SPEC_ATTR, None)
+
 # %% ../../nbs/core/precision.ipynb #resolution
 _TORCHAO_CELL = {'int8_weight_only': (8, 16), 'int8_dynamic': (8, 8), 'int4_weight_only': (4, 16)}
 _TORCHAO_RECIPES = {_label(w, a): method for method, (w, a) in _TORCHAO_CELL.items()}
@@ -182,6 +214,30 @@ def _check_width(name: str, value) -> int:
         raise ValueError(f"`{name}={value}` is not a width this grammar names. Use one of {list(WIDTHS)} "
                          "(16 means 'left in floating point').")
     return value
+
+
+def _check_qscheme(qscheme: str) -> str:
+    "Validate a weight axis name on its own, before any cell is consulted"
+    if not isinstance(qscheme, str):
+        raise _type_error('qscheme', f"one of {list(QSCHEMES)} (str)", qscheme)
+    if qscheme not in QSCHEMES:
+        raise ValueError(f"Unknown qscheme '{qscheme}'. The weight axes this grammar names are "
+                         f"{list(QSCHEMES)}.")
+    return qscheme
+
+
+# the one sentence that says what a group is, wherever a caller forgot to size one
+NEEDS_GROUP_SIZE = ("qscheme='per_group' needs a `group_size` (e.g. group_size={example}): a group is a "
+                    "fixed number of weights sharing one scale.")
+
+
+def _check_group_size(group_size) -> int:
+    "Validate a group size on its own, before the axis that gives it a meaning"
+    if isinstance(group_size, bool) or not isinstance(group_size, int):
+        raise _type_error('group_size', 'a positive int', group_size)
+    if group_size <= 0:
+        raise ValueError(f"`group_size={group_size}` is not a size: a group holds at least one weight.")
+    return group_size
 
 
 def _split_weight_bits(weight_bits) -> tuple[int | None, dict | None]:
@@ -246,12 +302,7 @@ def _lookup_cell(backend: str, weight_bits: int, act_bits: int) -> PrecisionCell
 
 def _resolve_qscheme(cell: PrecisionCell, qscheme, group_size, use_per_tensor: bool) -> str:
     "Pick the weight axis, refusing any the cell cannot honor"
-    if qscheme is not None:
-        if not isinstance(qscheme, str):
-            raise _type_error('qscheme', f"one of {list(QSCHEMES)} (str)", qscheme)
-        if qscheme not in QSCHEMES:
-            raise ValueError(f"Unknown qscheme '{qscheme}'. The weight axes this grammar names are "
-                             f"{list(QSCHEMES)}.")
+    if qscheme is not None: _check_qscheme(qscheme)
     if use_per_tensor:
         if cell.backend not in _LEGACY_BACKENDS:
             raise ValueError(f"`use_per_tensor=True` is a legacy-backend flag that backend='{cell.backend}' "
@@ -275,13 +326,9 @@ def _resolve_group_size(cell: PrecisionCell, qscheme: str, group_size) -> int | 
     if group_size is None:
         if qscheme != 'per_group': return None
         if cell.default_group_size is None:
-            raise ValueError("qscheme='per_group' needs a `group_size` (e.g. group_size=128): a group is a "
-                             "fixed number of weights sharing one scale.")
+            raise ValueError(NEEDS_GROUP_SIZE.format(example=128))
         return cell.default_group_size
-    if isinstance(group_size, bool) or not isinstance(group_size, int):
-        raise _type_error('group_size', 'a positive int', group_size)
-    if group_size <= 0:
-        raise ValueError(f"`group_size={group_size}` is not a size: a group holds at least one weight.")
+    _check_group_size(group_size)
     if qscheme != 'per_group':
         able = _backends_where(lambda c: 'per_group' in c.qschemes)
         raise ValueError(f"`group_size={group_size}` only means something with qscheme='per_group'; "
