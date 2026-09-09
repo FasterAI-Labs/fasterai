@@ -13,7 +13,8 @@ from torch.ao.quantization.quantize_fx import prepare_fx, prepare_qat_fx, conver
 from torch.ao.quantization.observer import MinMaxObserver, MovingAverageMinMaxObserver
 from torch.ao.quantization.fake_quantize import FakeQuantize
 from torch.quantization import quantize_dynamic
-from torch.ao.quantization.quantization_mappings import get_default_static_quant_module_mappings
+from torch.ao.quantization.quantization_mappings import (get_default_dynamic_quant_module_mappings,
+                                                         get_default_static_quant_module_mappings)
 from dataclasses import replace
 from typing import Any
 import warnings
@@ -469,9 +470,10 @@ def _pt2e_weight_layers(graph_module) -> list[str]:
 
 def _quantized_weight_layers(model: nn.Module) -> list[str]:
     "Names of the layers this model holds quantized: a torchao weight, an FX module, or a pt2e Q/DQ pair"
-    # an FX flow packs the weight behind a METHOD; a module it left in floating point keeps a Parameter
+    # an FX flow packs the weight behind a METHOD; a dynamic LSTM/GRU packs it out of `weight` entirely
     names = [n for n, m in model.named_modules()
-             if _is_quantized_weight(m) or callable(getattr(m, 'weight', None))]
+             if _is_quantized_weight(m) or callable(getattr(m, 'weight', None))
+             or type(m).__module__.startswith('torch.ao.nn.quantized.dynamic')]
     return names + (_pt2e_weight_layers(model) if isinstance(model, torch.fx.GraphModule) else [])
 
 # %% ../../nbs/quantize/quantizer.ipynb #fb1fd84a-dcf6-4ec5-966e-6fdd01e1d19b
@@ -482,6 +484,11 @@ _GRAMMAR_ARGS = ('weight_bits', 'act_bits', 'qscheme', 'group_size', 'symmetric'
 _CONV_TYPES = (nn.Conv1d, nn.Conv2d, nn.Conv3d)
 _CONV_BACKENDS = ('pt2e', 'x86')  # the two we point users to
 _CONV_FIX = 'for convolutions use ' + ' or '.join(f"backend='{b}'" for b in _CONV_BACKENDS) + '.'
+_DYNAMIC_TYPES = (nn.Linear, nn.LSTM, nn.GRU, nn.RNN)  # the types `quantize_dynamic` is asked to rewrite
+# ...of which torch maps only some: `nn.RNN` is in no dynamic mapping it ships, so a refusal that
+# named it would tell a caller their RNN should have been quantized.
+_DYNAMIC_REWRITTEN = tuple(t for t in _DYNAMIC_TYPES if t in get_default_dynamic_quant_module_mappings())
+_DYNAMIC_NAMES = '/'.join(t.__name__ for t in _DYNAMIC_REWRITTEN)
 # Embedding/EmbeddingBag are dropped: quantizing them needs an observer this flow never sets.
 _NO_DEFAULT_OBSERVER = (nn.Embedding, nn.EmbeddingBag)
 _LEGACY_QUANT_TYPES = tuple(t for t in get_default_static_quant_module_mappings()
@@ -666,22 +673,50 @@ class Quantizer:
         raise ValueError(f"backend='{self.backend}' {self.method} left {len(convs)} convolution(s) in "
                          f"floating point ({_preview(convs)}): {_CONV_FIX}")
 
+    def _check_converted(self, quantized: nn.Module) -> None:
+        "Refuse a model the backend handed back with no weight in an integer representation"
+        if _quantized_weight_layers(quantized): return
+        raise ValueError(f"backend='{self.backend}' {self.method} produced no integer weight: every layer "
+                         "came back in floating point. Quantize a model with layers this backend "
+                         "rewrites, or pick another backend.")
+
+    def _check_dynamic(self, quantized: nn.Module, source: nn.Module) -> None:
+        "Refuse a dynamically quantized model of which no eligible layer came back integer-weighted"
+        targets = [n for n, m in source.named_modules() if isinstance(m, _DYNAMIC_REWRITTEN)]
+        if set(targets) & set(_quantized_weight_layers(quantized)): return
+        why = (f"none of the {len(targets)} it has came back integer-weighted ({_preview(targets)})"
+               if targets else 'this model has none')
+        raise ValueError(f"method='dynamic' rewrites {_DYNAMIC_NAMES} only, and {why}: `quantize` would "
+                         "hand back a float model carrying a quantized model's provenance. Use "
+                         "method='static'.")
+
     def _accept(self, quantized: nn.Module, source: nn.Module) -> nn.Module:
-        "Post-condition, then the precision cell that produced it"
-        self._check_quantized(quantized, source)
+        "Post-conditions, then the precision cell that produced it"
+        # the conv post-condition does not apply to `dynamic`, which never rewrites a convolution
+        if self.method == 'dynamic': self._check_dynamic(quantized, source)
+        else:
+            self._check_quantized(quantized, source)
+            self._check_converted(quantized)
         return self._tag(quantized, source)
+
+    def _failed(self, e: Exception) -> RuntimeError:
+        "One shape for a backend failure, so no path can hand back an unquantized model instead"
+        return RuntimeError(f"backend='{self.backend}' method='{self.method}' could not quantize this "
+                            f"model: {e}. Fix that cause, or pick a backend that handles this model.")
 
     def _tag(self, quantized: nn.Module, source: nn.Module) -> nn.Module:
         "Record on the quantized model which precision cell produced it"
-        # `is not`: the legacy paths hand the SOURCE model back when they fail
+        # `is not`: no path returns the source model any more, and this keeps it that way
         if quantized is not source and not self._custom_mapping: setattr(quantized, SPEC_ATTR, self.spec)
         return quantized
 
     @contextlib.contextmanager
     def _quantized_engine(self):
-        "Context manager to temporarily set the quantization backend engine."
+        "Set the process-global quantization engine for the block, and record it on the spec"
         old_engine = torch.backends.quantized.engine
         torch.backends.quantized.engine = self.backend
+        # the kernels read that global when the model RUNS, long after this block: the spec carries it
+        self.spec = replace(self.spec, engine=torch.backends.quantized.engine)
         try:
             yield
         finally:
@@ -772,12 +807,11 @@ class Quantizer:
         "Quantize a model with dynamic quantization"
         try:
             model_copy = copy.deepcopy(model).cpu().eval()
-            qconfig_spec = {nn.Linear, nn.LSTM, nn.GRU, nn.RNN}
             with self._quantized_engine():
-                return quantize_dynamic(model_copy, qconfig_spec=qconfig_spec, dtype=torch.qint8, inplace=False)
+                return quantize_dynamic(model_copy, qconfig_spec=set(_DYNAMIC_TYPES),
+                                        dtype=torch.qint8, inplace=False)
         except Exception as e:
-            print(f"Dynamic quantization failed with error: {e}")
-            return model
+            raise self._failed(e) from e
 
     def _torchao_config(self):
         "torchao configuration for the resolved precision"
@@ -839,11 +873,15 @@ class Quantizer:
 
     def quantize(self, 
                 model: nn.Module,
-                calibration_dl: Any = None,              # Dataloader for calibration (required by 'static', 'qat' and 'pt2e')
+                calibration_dl: Any = None,              # Calibration data ('static', 'qat', 'pt2e'); calibrate on non-augmented batches
                 max_calibration_samples: int = 100,
-                device: str | torch.device = 'cpu'
+                device: str | torch.device = 'cpu'       # Where calibration runs; this flow is CPU-only
     ) -> nn.Module:
         "Quantize a model using the specified backend and method."
+        if torch.device(device).type != 'cpu':
+            raise ValueError(f"`device={device!r}`: PyTorch quantization runs on CPU, and calibrating "
+                             "elsewhere leaves the converted model split across devices. Use "
+                             "device='cpu'.")
         self._check_model(model)
 
         if self.backend == 'torchao':
@@ -854,11 +892,10 @@ class Quantizer:
             quantized = self._quantize_pt2e(model, calibration_dl, max_calibration_samples, device)
             return self._accept(quantized, model)
 
-        # no post-condition: quantize_dynamic rewrites Linear and RNN by contract, never a convolution
         if self.method == "dynamic":
             if self.verbose: print(f"Performing dynamic quantization with {self.backend} backend")
             self._apply_custom_configs()
-            return self._tag(self._quantize_dynamic(model), model)
+            return self._accept(self._quantize_dynamic(model), model)
         
         self._apply_custom_configs()
         example_batch = _first_input(calibration_dl)
@@ -872,26 +909,24 @@ class Quantizer:
                 self._calibrate_model(model_prepared, calibration_dl, max_samples=max_calibration_samples, device=device)
             
             if self.verbose: print("Converting to quantized model")
+            per_tensor_retry = False
             try:
                 with self._quantized_engine():
                     quantized_model = convert_fx(model_prepared)
             except RuntimeError as e:
-                if "Unsupported qscheme: per_channel_affine" in str(e) and not self.use_per_tensor:
-                    if self.verbose: print("Encountered per_channel_affine error, retrying with per-tensor")
-                    self.use_per_tensor = True
-                    self._update_qconfig_for_per_tensor()
-                    # the spec follows the retry: the provenance must describe what actually ran
-                    self.spec = replace(self.spec, qscheme='per_tensor')
-                    return self.quantize(model, calibration_dl, max_calibration_samples, device)
-                else:
-                    raise e
-            
+                if "Unsupported qscheme: per_channel_affine" not in str(e) or self.use_per_tensor: raise
+                per_tensor_retry = True
         except Exception as e:
-            print(f"Error during quantization: {e}")
-            if self.verbose:
-                import traceback
-                traceback.print_exc()
-            return model
+            raise self._failed(e) from e
+
+        if per_tensor_retry:
+            if self.verbose: print("Encountered per_channel_affine error, retrying with per-tensor")
+            self.use_per_tensor = True
+            self._update_qconfig_for_per_tensor()
+            # the spec follows the retry: the provenance must describe what actually ran
+            self.spec = replace(self.spec, qscheme='per_tensor')
+            return self.quantize(model, calibration_dl, max_calibration_samples, device)
+
         quantized_model = self._accept(quantized_model, model)
         if self.verbose: print("Quantization complete")
         return quantized_model
