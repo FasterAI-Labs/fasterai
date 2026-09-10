@@ -56,6 +56,10 @@ class BN_Folder():
         w_fold = conv_w * (bn_w * bn_var_rsqrt).view(-1, 1, 1, 1)
         b_fold = (conv_b - bn_rm) * bn_var_rsqrt * bn_w + bn_b
 
+        if w_fold.dtype in (torch.float32, torch.float64):
+            for t in (w_fold, b_fold):
+                t[t.abs() < torch.finfo(t.dtype).smallest_normal] = 0  # subnormals add nothing but stall CPU convolutions
+
         return torch.nn.Parameter(w_fold), torch.nn.Parameter(b_fold)
 
 
