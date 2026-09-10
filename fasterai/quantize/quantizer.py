@@ -15,7 +15,10 @@ from torch.ao.quantization.fake_quantize import FakeQuantize
 from torch.quantization import quantize_dynamic
 from torch.ao.quantization.quantization_mappings import (get_default_dynamic_quant_module_mappings,
                                                          get_default_static_quant_module_mappings)
+from contextlib import contextmanager
 from dataclasses import replace
+from functools import cache
+from operator import attrgetter
 from typing import Any
 import warnings
 import copy
@@ -25,26 +28,51 @@ try:
     from torchao.quantization import quantize_, Int8WeightOnlyConfig
     from torchao.quantization import Int8DynamicActivationInt8WeightConfig
     _HAS_TORCHAO = True
-    # an import is not enough: the INT4 kernels only fail when one actually runs
-    try:
-        from torchao.quantization import Int4WeightOnlyConfig
-        _m = nn.Linear(128, 128)
-        quantize_(_m, Int4WeightOnlyConfig(group_size=128))
-        _HAS_INT4 = True
-        del _m
-    except (ImportError, Exception):
-        _HAS_INT4 = False
 except ImportError:
     _HAS_TORCHAO = False
-    _HAS_INT4 = False
 
 # the recipes whose kernels this environment ships
 _TORCHAO_CONFIGS = {}
 if _HAS_TORCHAO:
     _TORCHAO_CONFIGS['int8_weight_only'] = Int8WeightOnlyConfig
     _TORCHAO_CONFIGS['int8_dynamic'] = Int8DynamicActivationInt8WeightConfig
-if _HAS_INT4:
-    _TORCHAO_CONFIGS['int4_weight_only'] = Int4WeightOnlyConfig
+
+# the inductor flags torchao's `quantize_` rewrites process-wide and never restores
+_TORCHAO_INDUCTOR = ('coordinate_descent_tuning', 'coordinate_descent_check_all_directions',
+                     'force_fuse_int_mm_with_mul', 'fx_graph_cache', 'triton.unique_kernel_names')
+
+@contextmanager
+def _kept_torch_settings():
+    "Restore the float32 numerics and the inductor flags torchao changes inside the block"
+    precision = torch.get_float32_matmul_precision()
+    tf32 = torch.backends.cuda.matmul.allow_tf32
+    saved = {k: attrgetter(k)(torch._inductor.config) for k in _TORCHAO_INDUCTOR}
+    try:
+        with torch._inductor.config.patch(saved):
+            yield
+    finally:
+        torch.set_float32_matmul_precision(precision)  # this call rewrites tf32, so restore it after
+        torch.backends.cuda.matmul.allow_tf32 = tf32
+
+@cache
+def _int4_config():
+    "torchao's INT4 config class, or None here: only running the kernels tells, so run one once"
+    try:
+        from torchao.quantization import Int4WeightOnlyConfig
+        with _kept_torch_settings():
+            quantize_(nn.Linear(128, 128), Int4WeightOnlyConfig(group_size=128))
+        return Int4WeightOnlyConfig
+    except Exception:
+        return None
+
+def _torchao_recipe(method: str) -> type | None:
+    "torchao's configuration class for a recipe, or None when this environment cannot run it"
+    if method == 'int4_weight_only': return _int4_config() if _HAS_TORCHAO else None
+    return _TORCHAO_CONFIGS.get(method)
+
+def _torchao_methods() -> list[str]:
+    "The torchao recipes whose kernels this environment runs"
+    return [m for m in (*_TORCHAO_CONFIGS, 'int4_weight_only') if _torchao_recipe(m)]
 
 _FQN_CONFIG = None          # torchao's {layer name: config} configuration class
 _torchao_is_linear = None   # torchao's own "is this a Linear I rewrite?" predicate
@@ -546,9 +574,9 @@ class Quantizer:
         if backend == 'torchao':
             if not _HAS_TORCHAO:
                 raise ImportError("torchao backend requires torchao. Install with: pip install torchao")
-            if self.method not in _TORCHAO_CONFIGS:
+            if _torchao_recipe(self.method) is None:
                 raise ValueError(f"torchao method '{self.method}' is not available in this environment "
-                                 f"(its kernels are missing). Available: {list(_TORCHAO_CONFIGS)}")
+                                 f"(its kernels are missing). Available: {_torchao_methods()}")
             if self.spec.layer_bits and not _HAS_FQN_CONFIG: raise ImportError(_FQN_MISSING)
             return
 
@@ -815,7 +843,7 @@ class Quantizer:
 
     def _torchao_config(self):
         "torchao configuration for the resolved precision"
-        config = _TORCHAO_CONFIGS[self.method]
+        config = _torchao_recipe(self.method)
         return config(group_size=self.spec.group_size) if self.spec.qscheme == 'per_group' else config()
 
     def _torchao_fqn_config(self, model: nn.Module):
@@ -839,7 +867,7 @@ class Quantizer:
                       f"layers ({len(floats)} left in floating point: {', '.join(floats) or 'none'})")
             else:
                 print(f"torchao: applying {self.method} ({type(config).__name__})")
-        with warnings.catch_warnings():
+        with warnings.catch_warnings(), _kept_torch_settings():
             warnings.simplefilter('ignore')
             try:
                 # `quantize_` refuses a per-layer configuration together with ANY filter
