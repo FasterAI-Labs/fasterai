@@ -7,3 +7,8 @@ website:
   description: "A library to make neural networks lighter and faster with fastai"
   repo-branch: master
   repo-url: "https://github.com/FasterAI-Labs/fasterai"
+
+format-links:
+  - html
+  - format: commonmark
+    text: Markdown
