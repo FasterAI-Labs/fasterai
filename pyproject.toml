@@ -12,7 +12,10 @@ license = "Apache-2.0"
 authors = [{name = "Nathan Hubens", email = "nathan.hubens@gmail.com"}]
 keywords = ['pruning', 'sparsification', 'knowledge-distillation', 'quantization', 'compression', 'deep-learning']
 classifiers = ["Natural Language :: English", "Intended Audience :: Developers", "Development Status :: 3 - Alpha", "Programming Language :: Python :: 3", "Programming Language :: Python :: 3 :: Only"]
-dependencies = ['fastai>=2.2', 'torch-pruning>=1.2', 'einops']
+dependencies = ['fastai>=2.2', 'torch-pruning>=1.2', 'einops', 'tqdm']
+
+[project.optional-dependencies]
+torchao = ['torchao']
 
 [project.urls]
 Repository = "https://github.com/FasterAI-Labs/fasterai"
