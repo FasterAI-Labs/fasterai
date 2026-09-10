@@ -181,6 +181,8 @@ class FakeQuantSpec:
     layer_bits: dict | None = None      # per-layer weight widths, when the caller asked for some
     layer_act_bits: dict | None = None  # per-layer activation widths, when the caller asked for some
     trained: bool = False               # True when the model was fitted through this rounding
+    weight_widths: tuple[int, ...] | None = None  # the ladder a schedule was asked to step the weights down, when one was
+    act_widths: tuple[int, ...] | None = None     # the ladder a schedule was asked to step the activations down, when one was
 
     @property
     def label(self) -> str:

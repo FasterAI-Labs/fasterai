@@ -4,14 +4,16 @@
 from __future__ import annotations
 import torch
 import torch.nn as nn
+from collections.abc import Sequence
 from dataclasses import replace
 from fastai.callback.all import *
 from fastcore.basics import store_attr
 from torch.nn.utils import parametrize
 from ..core.parametrize import _is_parametrized, _master, _unparametrize
-from ..core.precision import FAKE_SPEC_ATTR
-from .fake_quantizer import (FakeQuantizer, _ActRounder, _fake_quantize, _qrange,
-                                              _scale_zero)
+from ..core.precision import FAKE_SPEC_ATTR, _type_error
+from ..core.schedule import Schedule
+from .fake_quantizer import (FakeQuantizer, _ActRounder, _check_bits, _fake_quantize,
+                                              _qrange, _scale_zero)
 
 # %% auto #0
 __all__ = ['FakeQuantizeCallback']
@@ -60,6 +62,43 @@ class _ActObserver:
             mod.register_buffer(name, value, persistent=False)
 
 
+def _check_ladder(axis: str, schedule, widths, target: int | None) -> tuple[int, ...] | None:
+    "Validate one width ladder against the schedule stepping it and the width it must end at"
+    if schedule is None and widths is None: return None
+    if target is None:
+        raise ValueError(f"{axis}_bits=None leaves this axis in floating point, so a ladder has no width "
+                         f"to lower: name the width to end at with `{axis}_bits=`, or drop the ladder.")
+    if widths is None:
+        raise ValueError(f"`{axis}_schedule` has no ladder to step through: pass `{axis}_widths=`, the "
+                         f"widths to go down through, coarsest first and ending at {axis}_bits={target}.")
+    if isinstance(widths, str) or not isinstance(widths, Sequence):
+        raise _type_error(f'{axis}_widths', 'a sequence of widths, coarsest first', widths)
+    if schedule is None:
+        raise ValueError(f"`{axis}_widths={tuple(widths)}` is never stepped through: pass "
+                         f"`{axis}_schedule=`, the fasterai `Schedule` whose progress selects the rung.")
+    widths = tuple(widths)
+    if len(widths) < 2:
+        raise ValueError(f"`{axis}_widths={widths}` steps nothing: pass at least two widths, from the "
+                         f"coarsest one down to {axis}_bits={target}, or drop `{axis}_schedule`.")
+    for i, w in enumerate(widths):
+        if w is None:
+            raise ValueError(f"`{axis}_widths[{i}]=None` is not a rung: pass a width in [2, 16] there, "
+                             f"and {axis}_bits=None if you meant to leave the axis in floating point.")
+        _check_bits(f"{axis}_widths[{i}]", w, f"and only {axis}_bits=None leaves an axis in floating point")
+    if widths[-1] != target:
+        raise ValueError(f"`{axis}_widths={widths}` must end at the width this rounds to: make its last "
+                         f"rung {axis}_bits={target}.")
+    if any(a <= b for a, b in zip(widths, widths[1:])):
+        raise ValueError(f"`{axis}_widths={widths}` does not go down: pass strictly decreasing widths, "
+                         "the coarsest one first.")
+    return widths
+
+
+def _rung(ladder: tuple[int, ...], progress: float) -> int:
+    "The width a progress in [0, 1] selects, the rungs sharing it equally"
+    return ladder[min(max(int(progress * len(ladder)), 0), len(ladder) - 1)]
+
+
 class FakeQuantizeCallback(Callback):
     """Quantization-aware training on `FakeQuantizer`'s arithmetic: the fit sees rounded weights, the
     optimizer trains floating-point ones.
@@ -72,6 +111,10 @@ class FakeQuantizeCallback(Callback):
     A fit that raises never reaches `after_fit` and leaves the parametrizations in place, on a model
     `torch.save` refuses: `strip()` takes them off and keeps the floating-point weights, `bake()` keeps
     the rounding.
+
+    A schedule can lower the width during the fit rather than rounding at the target from the first
+    batch (`weight_schedule` / `weight_widths`, and their activation twins). Whether that is worth
+    doing is not measured here.
 
     Nothing here folds or freezes BatchNorm, so the weight ranges rounded are not the ones a deployed
     flow would see. The activation rounding sits on each module's own output, before whatever activation
@@ -90,6 +133,10 @@ class FakeQuantizeCallback(Callback):
                  layer_act_bits: dict | None = None,  # {layer_name: width} overriding `act_bits`
                  freeze_act_pct: float = 0.9,         # Training fraction after which the activation scales stop moving
                  act_averaging: float | None = _DEFAULT_AVERAGING,  # How far the observed range moves towards each batch; None takes its absolute min and max
+                 weight_schedule: Schedule | None = None,  # Schedule stepping `weight_widths`; None rounds at `weight_bits` from the first batch
+                 weight_widths: Sequence[int] | None = None,  # Weight widths to step down through, coarsest first, ending at `weight_bits`
+                 act_schedule: Schedule | None = None,     # Schedule stepping `act_widths`; None rounds at `act_bits` from the first batch
+                 act_widths: Sequence[int] | None = None,     # Activation widths to step down through, coarsest first, ending at `act_bits`
                  model: nn.Module | None = None,      # Model to round; None = learn.model
     ):
         "Train through a simulated width, and bake it in when the fit ends"
@@ -100,6 +147,10 @@ class FakeQuantizeCallback(Callback):
         if act_averaging is not None and not 0 < act_averaging <= 1:
             raise ValueError(f"`act_averaging={act_averaging}` is not an averaging constant: pass a value "
                              "in (0, 1], or None to observe the absolute min and max.")
+        self._ladders = {'weight': _check_ladder('weight', weight_schedule, weight_widths, weight_bits),
+                         'act': _check_ladder('act', act_schedule, act_widths, act_bits)}
+        self.current_widths = {'weight': weight_bits, 'act': act_bits}
+        self._pinned = {'weight': set(), 'act': set()}
         self.fake_quantizer, self.frozen = None, False
         self._installed, self._baked = False, False
 
@@ -117,11 +168,21 @@ class FakeQuantizeCallback(Callback):
                                             self.layer_act_bits)
         self.frozen, self._baked = False, False
         self._install()
-        print(f'Training through {self.fake_quantizer.spec.label}, weights {self.qscheme}')
+        self.current_widths = {'weight': self.weight_bits, 'act': self.act_bits}
+        self._pinned = {'weight': self._pin(self.layer_bits), 'act': self._pin(self.layer_act_bits)}
+        for axis, sched, ladder in self._scheduled():
+            sched.reset()
+            self._set_width(axis, ladder[0])   # the fit starts on the coarsest rung, not on the target
+        stepping = ', '.join(f'{axis} through {list(ladder)} bits'
+                             for axis, _, ladder in self._scheduled())
+        print(f'Training through {self.fake_quantizer.spec.label}, weights {self.qscheme}'
+              + (f', stepping {stepping}' if stepping else ''))
 
     def before_batch(self) -> None:
-        "Freeze the activation scales once the fit is `freeze_act_pct` through"
-        if self.training and self.pct_train >= self.freeze_act_pct: self._freeze_act()
+        "Step the scheduled widths, and freeze the activation scales once the fit is `freeze_act_pct` through"
+        if not self.training: return
+        self._step_widths()
+        if self.pct_train >= self.freeze_act_pct: self._freeze_act()
 
     def after_fit(self) -> None:
         "Bake the rounding in, unless the model was stripped by hand during the fit"
@@ -140,6 +201,8 @@ class FakeQuantizeCallback(Callback):
                                "range: fit at least one batch, or leave its activations in floating point "
                                "with layer_act_bits.")
         self._freeze_act()  # a threshold a short fit never reached must not leave the scales moving
+        for axis, _, ladder in self._scheduled():
+            self._set_width(axis, ladder[-1])  # a fit cut short still bakes the width the spec names
         for _, m in fq._named:
             if not _is_parametrized(m): continue
             m.register_buffer('_fp_weight', _master(m).detach().clone(), persistent=False)
@@ -152,7 +215,9 @@ class FakeQuantizeCallback(Callback):
             ptq = _ActRounder(rounder.bits, rounder.symmetric, False)
             fq._act_hooks[m] = (m.register_forward_hook(ptq), ptq)
         fq._calibrated, fq._quantized = True, True
-        setattr(fq.model, FAKE_SPEC_ATTR, replace(fq.spec, trained=True))
+        setattr(fq.model, FAKE_SPEC_ATTR, replace(fq.spec, trained=True,
+                                                  weight_widths=self._ladders['weight'],
+                                                  act_widths=self._ladders['act']))
         self._installed, self._baked = False, True
         print(f'Baked in {fq.spec.label}: the model holds its rounded weights, and '
               'fake_quantizer.remove() gives the trained floating-point ones back')
@@ -204,6 +269,55 @@ class FakeQuantizeCallback(Callback):
         for _, rounder in self.fake_quantizer._act_hooks.values():
             if isinstance(rounder, _ActObserver): rounder.frozen = True
         self.frozen = True
+
+    def _scheduled(self):
+        "One (axis, schedule, ladder) triple per scheduled axis, and nothing when no width is scheduled"
+        for axis, sched in (('weight', self.weight_schedule), ('act', self.act_schedule)):
+            if self._ladders[axis] is not None: yield axis, sched, self._ladders[axis]
+
+    def _pin(self, overrides: dict | None) -> set:
+        "The modules a per-layer dict named: their width is the one it gave them, all fit"
+        by_name = dict(self.fake_quantizer._named)
+        return {by_name.get(k) if isinstance(k, str) else k for k in (overrides or {})} - {None}
+
+    @property
+    def _final_batch(self) -> bool:
+        "Whether this is the fit's last training batch, whose rung the bake keeps"
+        return self.epoch == self.n_epoch - 1 and self.iter == self.n_iter - 1
+
+    def _step_widths(self) -> None:
+        "Lower each scheduled axis onto the rung its progress selects"
+        for axis, sched, ladder in self._scheduled():
+            # the rung decides, not `Schedule.changed`, so a schedule shared with another callback that
+            # does read it is left exactly as that one expects to find it
+            progress = sched.progress(round(self.pct_train, 3))
+            # `pct_train` never reaches 1, so the last batch takes the final rung whatever the arithmetic
+            bits = ladder[-1] if self._final_batch else _rung(ladder, progress)
+            if bits != self.current_widths[axis]: self._set_width(axis, bits)
+
+    def _set_width(self, axis: str, bits: int) -> None:
+        "Write one rung onto every rounder the ladder of `axis` moves, and remember it"
+        if axis == 'weight': self._set_weight_width(bits)
+        else: self._set_act_width(bits)
+        self.current_widths[axis] = bits
+
+    def _set_weight_width(self, bits: int) -> None:
+        "Round to `bits` every weight on the ladder — the ones `layer_bits` named are not on it"
+        for _, m in self.fake_quantizer._named:
+            if m in self._pinned['weight'] or not _is_parametrized(m): continue
+            for p in m.parametrizations.weight:
+                if isinstance(p, _FakeQuantWeight): p.bits = bits
+
+    def _set_act_width(self, bits: int) -> None:
+        "Round to `bits` every activation on the ladder, rewriting the scales its observed range defines"
+        for m, (_, rounder) in self.fake_quantizer._act_hooks.items():
+            if m in self._pinned['act']: continue
+            rounder.bits = bits
+            # the observed range is width-independent; only the scale it defines has to be rewritten
+            if '_act_min' not in m._buffers: continue
+            scale, zero = _scale_zero(m._act_min, m._act_max, bits, self.symmetric)
+            for name, value in (('_act_scale', scale), ('_act_zero_point', zero)):
+                m.register_buffer(name, value, persistent=False)
 
     def _check_alone(self) -> None:
         "Refuse a fit that also carries `QuantizeCallback`, which swaps the model this one parametrizes"
