@@ -91,12 +91,13 @@ class QuantizeCallback(Callback):
         device = _model_device(self.learn.model)  # before the in-place .cpu() below
         try:
             prepared = self.quantizer._prepare_model(self.learn.model, example_input.cpu())
-            self._swap_model(prepared.to(device))
-            if self.verbose: print("Model prepared for QAT successfully")
-        except Exception as e:
+        except Exception as e:  # the preparation only: what follows it must not fail silently
             print(f"Error preparing model for QAT: {e}")
             traceback.print_exc()
-            self.learn.model = self.original_model.to(device)
+            self._swap_model(self.original_model.to(device))  # a copy, so the optimizer follows it too
+            return
+        self._swap_model(prepared.to(device))
+        if self.verbose: print("Model prepared for QAT successfully")
 
     def _finish_pt2e(self) -> None:
         "Freeze the observed scales into a quantized graph"
@@ -143,28 +144,44 @@ class QuantizeCallback(Callback):
                  for p, state in opt.state.items()}
         try:
             self.learn.create_opt()
+            cause = None
         except Exception as e:
-            untracked = self._untracked_params(opt)
-            if untracked:
-                raise RuntimeError(
-                    f"The optimizer could not be rebuilt on the prepared model ({type(e).__name__}: {e}), "
-                    f"and the one `fit` built does not hold {len(untracked)} of its parameters "
-                    f"({untracked[:3]}), which QAT would leave untrained. Use a splitter that applies to "
-                    "the prepared model too, or the default one.") from e
-            warnings.warn(f"The optimizer could not be rebuilt on the prepared model "
-                          f"({type(e).__name__}: {e}); it still holds every parameter being trained, so "
-                          "the fit continues with it.", UserWarning)
-            return
+            # the fastai vision splitters index the model, which a prepared graph does not support
+            self._regroup_opt(opt)
+            cause = e
+        untracked = self._untracked_params(self.learn.opt)
+        if untracked:
+            raise RuntimeError(
+                f"The optimizer does not hold {len(untracked)} of the prepared model's parameters "
+                f"({untracked[:3]}), which QAT would leave untrained: use a splitter that applies to "
+                "the prepared model too, or the default one.") from cause
         for parameter in (p for group in self.learn.opt.param_lists for p in group):
             mark = marks.get(id(parameter))
             if mark: self.learn.opt.state[parameter].update(mark)
         if not hypers: return
         for i, group in enumerate(self.learn.opt.hypers):
-            # `fit` gives every group the same lr and wd, so the first one carries over
+            # at this point `fit` has flattened every group's lr; the per-group ones come from the schedule
             group.update(hypers[min(i, len(hypers) - 1)])
+
+    def _regroup_opt(self, opt) -> None:
+        """Rebuild `learn.opt` on the prepared model, keeping `opt`'s groups by parameter identity;
+        new parameters join the last group"""
+        index = {id(p): i for i, group in enumerate(opt.param_lists) for p in group}
+        groups = [[] for _ in opt.param_lists]
+        for p in self.learn.model.parameters():
+            # a frozen parameter the preparation added belongs to no group: `unfreeze` would train it
+            if id(p) in index or p.requires_grad: groups[index.get(id(p), len(groups) - 1)].append(p)
+        try:
+            self.learn.opt = self.learn.opt_func(groups, lr=self.learn.lr)
+            self.learn.opt.frozen_idx = opt.frozen_idx
+        except Exception as e:
+            warnings.warn(f"The optimizer could not be rebuilt on the prepared model ({type(e).__name__}: "
+                          f"{e}); the fit continues with the one `fit` built — pass "
+                          "`splitter=trainable_params` if it does not hold every parameter.", UserWarning)
 
     def _untracked_params(self, opt) -> list[str]:
         "Names of the current model's trainable parameters that `opt` does not hold"
         held = {id(p) for group in opt.param_lists for p in group}
         return [n for n, p in self.learn.model.named_parameters()
                 if p.requires_grad and id(p) not in held]
+
