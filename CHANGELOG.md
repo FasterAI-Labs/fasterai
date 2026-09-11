@@ -2,7 +2,7 @@
 
 <!-- do not remove -->
 
-## Unreleased
+## 0.4.0
 
 ### New Features
 - `FakeQuantizer(model, weight_bits=4, act_bits=8)` rounds weights and activations onto the widths asked for **in floating point**, doing the arithmetic itself, so any width pair can be asked for on any model wherever that model already runs. It follows the shape of its siblings: the model at construction, `qscheme` for the scale axis (`per_tensor`, `per_channel`, `per_group`), `symmetric`, `group_size`, `observer`, the per-layer `layer_bits` and `layer_act_bits` dicts beside the defaults, mutation in place, and `print_precision()` as the report. `calibrate()` observes the activation ranges and takes a fastai `DataLoaders` or one of its loaders, refusing anything else by name; `quantize_model()` rounds in place and returns the same model; `remove()` puts the floating-point weights back bit for bit. `None` leaves a tensor in floating point, `16` is a real 16-bit grid, and `observer='dynamic'` recomputes activation scales per batch instead of freezing them. `FakeQuantSpec` and `fake_quant_spec(model)` carry the provenance. The model keeps its floating-point dtype and its ordinary modules, so this measures what a width costs in **accuracy**, not what it saves: a floating-point copy of every rounded weight is held, biases stay in floating point where an integer kernel would carry them at int32, BatchNorm is not folded, and a rounded model is not a QAT model. `Quantizer`, the precision table and the ONNX exporter are untouched — this ships beside them
