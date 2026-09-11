@@ -2,6 +2,11 @@
 
 <!-- do not remove -->
 
+## Unreleased
+
+### Bug Fixes
+- `PruneCallback` now re-points `learn.opt` at the model's live parameters after every prune. Structured pruning replaces the `nn.Parameter` objects of the layers it shrinks, and the optimizer `Learner.fit` built still referenced the old ones: on a small convolutional model the optimizer held 1 of the model's 10 parameters after the first prune, and the pruned layers' weights did not change again for the rest of the fit (max |ΔW| = 0.0 over the following epoch). The optimizer object itself is kept and its parameter groups are rewritten in place, so the groups, the hypers and the state of this fit survive the prune: the optimizer state of a parameter the prune spared is kept, the state of a replaced parameter is dropped along with the dead parameter that keyed it — a key on a parameter no group holds made `learn.save()` raise inside the wrapped optimizer's `state_dict()` — and fastai's no-weight-decay and force-train marks are re-applied. Frozen groups stay frozen: torch-pruning re-creates the parameters it replaces requiring grad, including those of a layer it touches only as a dependency of the one it prunes, so a frozen layer used to start training again after the first prune
+
 ## 0.4.0
 
 ### New Features
