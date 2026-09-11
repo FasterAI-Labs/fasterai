@@ -2,6 +2,11 @@
 
 <!-- do not remove -->
 
+## Unreleased
+
+### Bug Fixes
+- `PruneCallback` now re-points `learn.opt` at the model's live parameters after every prune. Structured pruning replaces the `nn.Parameter` objects of the layers it shrinks, and the optimizer `Learner.fit` built still referenced the old ones: on a small convolutional model the optimizer held 1 of the model's 10 parameters after the first prune, and the pruned layers' weights did not change again for the rest of the fit (max |ΔW| = 0.0 over the following epoch). The optimizer object itself is kept and its parameter groups are rewritten in place — fastai binds `opt.step` before the `before_step` event where the prune runs, so a freshly built optimizer would not be the one that steps that batch — which keeps the groups, the hypers and the scheduled learning rate of the batch being stepped. The optimizer state of a parameter the prune spared is kept; the state of a replaced parameter is dropped, along with the dead parameter that keyed it
+
 ## 0.4.0
 
 ### New Features

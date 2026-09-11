@@ -11,11 +11,16 @@ from ..core.criteria import *
 from ..core.ratio import as_fraction
 from ..core.schedule import *
 
+from collections import defaultdict
 import torch
 import torch.nn as nn
 
 # %% ../../nbs/prune/prune_callback.ipynb #50598138-7d55-4774-b711-114c1c42dce8
 class PruneCallback(Callback):
+    """Prune the model during training, with `fasterai.prune.Pruner`.
+    A prune replaces the parameters of every layer it shrinks, so the optimizer is re-pointed at the
+    live ones after each one: the state (momentum, and the rest) of a replaced parameter is dropped,
+    the state of a parameter that survived the prune is kept, and so are the groups and the hypers."""
     def __init__(self,
                  pruning_ratio,  # Filters to remove, a fraction in [0, 1] (0.4 = 40%), or a per-layer dict
                  schedule,       # When to prune, from `fasterai.core.schedule` (e.g. one_shot, agp)
@@ -80,6 +85,19 @@ class PruneCallback(Callback):
         "Apply pruning before optimizer step"
         if self.training: 
             self.pruner.prune_model()
+            self._rebind_opt()  # here, and in place: fastai bound `opt.step` before this event fired
+
+    def _rebind_opt(self) -> None:
+        "Re-point `learn.opt` at the model's live parameters, keeping the state of those the prune spared"
+        opt = getattr(self.learn, 'opt', None)
+        if opt is None: return
+        groups = L(self.learn.splitter(self.learn.model))
+        opt.param_lists = L(L(g) for g in groups) if isinstance(groups[0], (L, list)) else L([groups])
+        live = {id(p) for g in opt.param_lists for p in g}
+        for holder in (opt, getattr(opt, 'opt', None)):  # fastai's optimizer, and the torch one a wrapper holds
+            state = getattr(holder, 'state', None)
+            if isinstance(state, dict):
+                holder.state = defaultdict(dict, {p: s for p, s in state.items() if id(p) in live})
 
     def after_epoch(self) -> None:
         "Log the pruning ratio reached after each epoch"
