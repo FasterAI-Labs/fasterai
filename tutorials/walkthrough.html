@@ -1,0 +1,1898 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="Walkthrough">
+
+<title>Walkthrough – fasterai</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-b85bc7c33db8c58e0ec93c3465666fed.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-e39ecabbe5bbb9e7543baaa6db53d829.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-c86631b592cd90049e0613dd1b76794d.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-424WWZFZ5F"></script>
+
+<script type="text/javascript">
+
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-424WWZFZ5F', { 'anonymize_ip': true});
+</script>
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-chtml.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="../styles.css">
+<meta property="og:title" content="Walkthrough – fasterai">
+<meta property="og:description" content="Walkthrough">
+<meta property="og:image" content="https://FasterAI-Labs.github.io/fasterai/imgs/distill.png">
+<meta property="og:site_name" content="fasterai">
+<meta property="og:image:height" content="800">
+<meta property="og:image:width" content="1920">
+<meta name="twitter:title" content="Walkthrough – fasterai">
+<meta name="twitter:description" content="Walkthrough">
+<meta name="twitter:image" content="https://FasterAI-Labs.github.io/fasterai/imgs/distill.png">
+<meta name="twitter:creator" content="@nathanhubens">
+<meta name="twitter:site" content="@fasterai">
+<meta name="twitter:image-height" content="800">
+<meta name="twitter:image-width" content="1920">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+
+<body class="nav-sidebar floating nav-fixed quarto-dark"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = true;
+    const darkModeDefault = authorPrefersDark;
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">fasterai</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="mailto:nathan.hubens@gmail.com?subject=Hello"> <i class="bi bi-chat-right-text" role="img">
+</i> 
+<span class="menu-text">Contact Me</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://github.com/FasterAI-Labs/fasterai/issues"> <i class="bi bi-bug" role="img">
+</i> 
+<span class="menu-text">Report an Issue</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://discord.gg/32BwhJSB9u"> <i class="bi bi-discord" role="img">
+</i> 
+<span class="menu-text">Join the Community</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/FasterAI-Labs/fasterai"> <i class="bi bi-github" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://twitter.com/fasterai"> <i class="bi bi-twitter" role="img" aria-label="FasterAI Twitter">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="Toggle dark mode"><i class="bi"></i></a>
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../tutorials/walkthrough.html">Tutorials</a></li><li class="breadcrumb-item"><a href="../tutorials/walkthrough.html">Walkthrough</a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../overview.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Overview</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quickstart.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quick Start</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">Tutorials</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/walkthrough.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text">Walkthrough</span></a>
+  </div>
+</li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false">
+ <span class="menu-text">Sparse</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/schedules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Schedules</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/sparsifier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsifier</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/sparsify_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsify Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/lottery_ticket.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Lottery Ticket Hypothesis</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/sparse/transformers.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Transformers</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false">
+ <span class="menu-text">Prune</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/prune/pruner.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Pruner</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/prune/prune_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/prune/yolov8.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">YOLOv8</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+ <span class="menu-text">Distill</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/distill/distill_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">KnowledgeDistillation Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
+ <span class="menu-text">Regularize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/regularize/regularize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Regularize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
+ <span class="menu-text">Quantize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/quantize/quantize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantize Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/quantize/deployable_export.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Deployable INT8 Export</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/quantize/quantization_compared.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantization Methods Compared</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/quantize/fake_quantizer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">FakeQuantizer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/quantize/fake_quantize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">FakeQuantizeCallback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
+ <span class="menu-text">Misc</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/misc/bn_folding.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">BatchNorm Folding</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/misc/fc_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Fully-Connected Layer Decomposition</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/misc/conv_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Conv2d Layer Decomposition</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
+ <span class="menu-text">Export</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth2 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorials/export/onnx_export.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">ONNX Export</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../tutorial_contract.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Tutorial contract</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false">
+ <span class="menu-text">Core</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/granularity.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Granularity</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/criteria.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Criteria</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/schedules.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Schedules</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/precision.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Precision</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/ratio.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Ratios</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../core/parametrize.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Parametrize</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false">
+ <span class="menu-text">Sparse</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../sparse/sparsifier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsifier</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../sparse/sparsify_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Sparsify Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false">
+ <span class="menu-text">Prune</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../prune/pruner.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Pruner</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../prune/prune_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Prune Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false">
+ <span class="menu-text">Distill</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../distill/distillation_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Knowledge Distillation</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../distill/losses.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Distillation Losses</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false">
+ <span class="menu-text">Quantize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quantize/quantizer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantizer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quantize/fake_quantizer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">FakeQuantizer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quantize/fake_quantize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">FakeQuantize Callback</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../quantize/quantize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Quantize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="false">
+ <span class="menu-text">Regularize</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-14" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regularize/regularize_callback.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Regularize Callback</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="false">
+ <span class="menu-text">Misc</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-15" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/bn_folding.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Batch Norm Folding</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/fc_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Fully-Connected Layers Decomposer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/conv_decomposer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Conv2d Layers Decomposer</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../misc/cpu_optimizer.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">CPU Optimizer</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="false">
+ <span class="menu-text">Export</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="false" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-16" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../export/onnx_exporter.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">ONNX Exporter</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#knowledge-distillation" id="toc-knowledge-distillation" class="nav-link active" data-scroll-target="#knowledge-distillation"><strong>Knowledge Distillation</strong></a></li>
+  <li><a href="#sparsifying" id="toc-sparsifying" class="nav-link" data-scroll-target="#sparsifying"><strong>Sparsifying</strong></a></li>
+  <li><a href="#pruning" id="toc-pruning" class="nav-link" data-scroll-target="#pruning"><strong>Pruning</strong></a></li>
+  <li><a href="#batch-normalization-folding" id="toc-batch-normalization-folding" class="nav-link" data-scroll-target="#batch-normalization-folding"><strong>Batch Normalization Folding</strong></a></li>
+  <li><a href="#fc-layers-factorization" id="toc-fc-layers-factorization" class="nav-link" data-scroll-target="#fc-layers-factorization"><strong>FC Layers Factorization</strong></a></li>
+  <li><a href="#quantization" id="toc-quantization" class="nav-link" data-scroll-target="#quantization">Quantization</a></li>
+  <li><a href="#extra-acceleration" id="toc-extra-acceleration" class="nav-link" data-scroll-target="#extra-acceleration">Extra Acceleration</a></li>
+  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary">Summary</a></li>
+  <li><a href="#see-also" id="toc-see-also" class="nav-link" data-scroll-target="#see-also">See Also</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/FasterAI-Labs/fasterai/issues/new" class="toc-action"><i class="bi bi-github"></i>Report an issue</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../tutorials/walkthrough.html">Tutorials</a></li><li class="breadcrumb-item"><a href="../tutorials/walkthrough.html">Walkthrough</a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title">Walkthrough</h1>
+</div>
+
+<div>
+  <div class="description">
+    Walkthrough
+  </div>
+</div>
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<!-- WARNING: THIS FILE WAS AUTOGENERATED! DO NOT EDIT! -->
+<div id="a1f4b72982cd" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>size, bs <span class="op">=</span> <span class="dv">128</span>, <span class="dv">32</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>dls <span class="op">=</span> get_dls(size, bs)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'</span><span class="sc">{</span><span class="bu">len</span>(dls.train_ds)<span class="sc">}</span><span class="ss"> training images, </span><span class="sc">{</span><span class="bu">len</span>(dls.valid_ds)<span class="sc">}</span><span class="ss"> validation images, '</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f'</span><span class="sc">{</span><span class="bu">len</span>(dls.vocab)<span class="sc">}</span><span class="ss"> classes, at </span><span class="sc">{</span>size<span class="sc">}</span><span class="ss"> pixels'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>9469 training images, 3925 validation images, 10 classes, at 128 pixels</code></pre>
+</div>
+</div>
+<div id="68dd34fb600d" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'torch </span><span class="sc">{</span>torch<span class="sc">.</span>__version__<span class="sc">}</span><span class="ss"> | </span><span class="sc">{</span>torch<span class="sc">.</span>get_num_threads()<span class="sc">}</span><span class="ss"> CPU threads | '</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f'training on </span><span class="sc">{</span>default_device()<span class="sc">}</span><span class="ss">'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>torch 2.9.1+cu128 | 24 CPU threads | training on cuda:0</code></pre>
+</div>
+</div>
+<p>Let’s start with a bit of context for the purpose of the demonstration. Imagine that we want to deploy a <strong>VGG16</strong> model on a mobile device that has limited storage capacity and that our task requires our model to run sufficiently fast. It is known that parameters and speed efficiency are not the strong points of <strong>VGG16</strong> but let’s see what we can do with it.</p>
+<p>Let’s first check the number of parameters and the inference time of <strong>VGG16</strong>.</p>
+<div id="2544d2c9cf75" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>set_seed(<span class="dv">42</span>, reproducible<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>learn <span class="op">=</span> Learner(dls, models.vgg16_bn(num_classes<span class="op">=</span><span class="dv">10</span>), metrics<span class="op">=</span>[accuracy])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div id="4c6369b70461" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>baseline_params <span class="op">=</span> get_num_parameters(learn.model)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>baseline_size <span class="op">=</span> get_model_size(learn.model)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Model Size: </span><span class="sc">{</span>baseline_size <span class="op">/</span> <span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> MB (disk), </span><span class="sc">{</span>baseline_params<span class="sc">}</span><span class="ss"> parameters"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Model Size: 537.30 MB (disk), 134318423 parameters</code></pre>
+</div>
+</div>
+<p>So our model has <strong>134 millions</strong> parameters and needs <strong>537.30MB</strong> of disk space in order to be stored.</p>
+<div id="342eddf4cbae" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>x, y <span class="op">=</span> dls.one_batch()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div id="d87ac2049cba" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>baseline_ms, lo, hi <span class="op">=</span> evaluate_cpu_speed(learn.model, x[<span class="dv">0</span>][<span class="va">None</span>])</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Inference Speed: </span><span class="sc">{</span>baseline_ms<span class="sc">:.2f}</span><span class="ss">ms (</span><span class="sc">{</span>lo<span class="sc">:.2f}</span><span class="ss">–</span><span class="sc">{</span>hi<span class="sc">:.2f}</span><span class="ss"> over three repeats)'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Inference Speed: 23.40ms (23.34–23.52 over three repeats)</code></pre>
+</div>
+</div>
+<p>And it takes <strong>23.40ms</strong> to perform inference on a single image.</p>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Note
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><strong>Measured on</strong> an Intel i9-14900KS, at the thread count and torch version printed above, one image at a time, ten warm-up passes then three timing repeats of fifty passes each, reported as the mean with the min and max of the three. Every latency on this page comes from that same single run, at the 1-minute load averages the recap prints.</p>
+</div>
+</div>
+<p>Snap ! This is more than we can afford for deployment, ideally we would like our model to take only half of that…but should we give up ? Nope, there are actually a lot of techniques that we can use to help reducing the size and improve the speed of our models! Let’s see how to apply them with <strong>FasterAI</strong>.</p>
+<p><br></p>
+<p>We will first train our <strong>VGG16</strong> model to have a <strong>baseline</strong> of what performance we should expect from it.</p>
+<div id="284189286a62" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>set_seed(<span class="dv">42</span>, reproducible<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> learn.no_bar(), learn.no_logging(): learn.fit_one_cycle(<span class="dv">10</span>, <span class="fl">1e-4</span>)</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>baseline_k, baseline_n <span class="op">=</span> report_accuracy(learn.model, <span class="st">'VGG16'</span>, dls)</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>trained_ms, lo, hi <span class="op">=</span> evaluate_cpu_speed(learn.model, x[<span class="dv">0</span>][<span class="va">None</span>])</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Inference Speed: </span><span class="sc">{</span>trained_ms<span class="sc">:.2f}</span><span class="ss">ms (</span><span class="sc">{</span>lo<span class="sc">:.2f}</span><span class="ss">–</span><span class="sc">{</span>hi<span class="sc">:.2f}</span><span class="ss"> over three repeats)'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>VGG16 accuracy: 3183/3925 (81.10%)
+Inference Speed: 23.84ms (23.82–23.87 over three repeats)</code></pre>
+</div>
+</div>
+<p>Ten epochs from scratch leave it at <strong>81.10%</strong> (3183/3925 correct on the validation set), and the trained model takes <strong>23.84ms</strong> on that same single image. Those are the two numbers every step below is read against.</p>
+<p>So we would like our network to have comparable accuracy but fewer parameters and running faster… And the first technique that we will show how to use is called <strong>Knowledge Distillation</strong></p>
+<p><br></p>
+<hr>
+<p><br></p>
+<section id="knowledge-distillation" class="level2">
+<h2 class="anchored" data-anchor-id="knowledge-distillation"><strong>Knowledge Distillation</strong></h2>
+<p>Knowledge distillation is a simple yet very efficient way to train a model. It was introduced in 2006 by <a href="https://www.cs.cornell.edu/~caruana/compression.kdd06.pdf">Caruana et al.</a>. The main idea behind is to use a small model (called the <strong>student</strong>) to approximate the function learned by a larger and high-performing model (called the <strong>teacher</strong>). This can be done by using the large model to pseudo-label the data. This idea has been used very recently to <a href="https://arxiv.org/abs/1911.04252">break the state-of-the-art accuracy on ImageNet</a>.</p>
+<p>When we train our model for classification, we usually use a softmax as last layer. This softmax has the particularity to squish low value logits towards <strong>0</strong>, and the highest logit towards <strong>1</strong>. This has the effect of completely losing all the inter-class information, or what is sometimes called the <em>dark knowledge</em>. This is the information that is valuable and that we want to transfer from the teacher to the student.</p>
+<p>To do so, we still use a regular classification loss but at the same time, we’ll use another loss, computed between the <em>softened</em> logits of the teacher (our <em>soft labels</em>) and the <em>softened</em> logits of the student (our <em>soft predictions</em>). Those soft values are obtained when you use a <strong>soft-softmax</strong>, that avoids squishing the values at its output. Our implementation follows <a href="http://cs230.stanford.edu/files_winter_2018/projects/6940224.pdf">this paper</a> and the basic principle of training is represented in the figure below:</p>
+<p><br></p>
+<p><img src="../imgs/distill.png" class="img-fluid"></p>
+<p><br></p>
+<p>To use <strong>Knowledge Distillation</strong> with FasterAI, you only need to use this callback when training your student model:</p>
+<p><br></p>
+<blockquote class="blockquote">
+<pre><b><i> KnowledgeDistillationCallback(teacher, loss) </i></b></pre>
+<p style="font-size: 15px">
+<i> You only need to give to the callback the model of your teacher and the distillation loss to use. Behind the scenes, FasterAI will take care of making your model train using knowledge distillation. </i>
+</p>
+</blockquote>
+<p><br></p>
+<div id="4876858f9346" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.distill.<span class="bu">all</span> <span class="im">import</span> <span class="op">*</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>The first thing to do is to find a teacher, which can be any model, that preferrably performs well. We will chose <strong>VGG19</strong> for our demonstration. To make sure it performs better than our <strong>VGG16</strong> model, let’s start from a pretrained version.</p>
+<div id="5cf8c5b93d5e" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>teacher <span class="op">=</span> vision_learner(dls, models.vgg19_bn, metrics<span class="op">=</span>[accuracy])</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> teacher.no_bar(), teacher.no_logging(): teacher.fit_one_cycle(<span class="dv">3</span>, <span class="fl">1e-4</span>)</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>teacher_k, teacher_n <span class="op">=</span> report_accuracy(teacher.model, <span class="st">'VGG19 teacher'</span>, dls)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>VGG19 teacher accuracy: 3672/3925 (93.55%)</code></pre>
+</div>
+</div>
+<p>Our teacher has <strong>93.55%</strong> of accuracy (3672/3925) which is pretty good, it is ready to take a student under its wing. So let’s create our student model and train it with the <strong>Knowledge Distillation</strong> callback:</p>
+<div id="77ea371bc8c4" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>set_seed(<span class="dv">42</span>, reproducible<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>student <span class="op">=</span> Learner(dls, models.vgg16_bn(num_classes<span class="op">=</span><span class="dv">10</span>), metrics<span class="op">=</span>[accuracy])</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>kd_cb <span class="op">=</span> KnowledgeDistillationCallback(teacher.model, SoftTarget)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>set_seed(<span class="dv">42</span>, reproducible<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> student.no_bar(), student.no_logging(): student.fit_one_cycle(<span class="dv">10</span>, <span class="fl">1e-4</span>, cbs<span class="op">=</span>kd_cb)</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>student_k, student_n <span class="op">=</span> report_accuracy(student.model, <span class="st">'VGG16 student'</span>, dls)</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Difference with the vanilla VGG16: </span><span class="sc">{</span>student_k <span class="op">-</span> baseline_k<span class="sc">}</span><span class="ss"> images'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>VGG16 student accuracy: 3200/3925 (81.53%)
+Difference with the vanilla VGG16: 17 images</code></pre>
+</div>
+</div>
+<p>With the teacher, the student ends at <strong>81.53%</strong> (3200/3925) against <strong>81.10%</strong> (3183/3925) for the vanilla <strong>VGG16</strong> — same ten epochs, same learning rate, same seed, one run each. That is 17 images. One run of each does not say whether that gap survives another seed, so this page does not attribute it to the distillation.</p>
+<p>With some experimentations we could come up with a model smaller than <strong>VGG16</strong> but able to reach the same performance as our baseline! You can try to find it by yourself later, but for now let’s continue with the next technique !</p>
+<p><br></p>
+<hr>
+<p><br></p>
+</section>
+<section id="sparsifying" class="level2">
+<h2 class="anchored" data-anchor-id="sparsifying"><strong>Sparsifying</strong></h2>
+<p>Now that we have a student model in hand, we have some room to compress it. And we’ll start by making the network sparse. As explained in a previous <a href="https://nathanhubens.github.io/posts/deep%20learning/2020/05/22/pruning.html">article</a>, there are many ways leading to a sparse network.</p>
+<p><br></p>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Note
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Usually, the process of making a network sparse is called Pruning. I prefer using the term Pruning when parameters are <strong>actually</strong> removed from the network, which we will do in the next section.</p>
+</div>
+</div>
+<p><br></p>
+<p><img src="../imgs/schedules.png" class="img-fluid"></p>
+<p><br></p>
+<p>In FasterAI, the sparsification is managed by a callback, that will replace the <em>least important</em> parameters of your model by zeroes during the training, following the schedule you hand it — the <strong>Automated Gradual Pruning</strong> of the figure above is one of those, and it removes parameters as the model trains, so it doesn’t require to pretrain the model. The callback has a wide variety of parameters to tune your <strong>Sparsifying</strong> operation, let’s take a look at them:</p>
+<p><br></p>
+<blockquote class="blockquote">
+<pre><b><i>SparsifyCallback(sparsity, granularity, context, criteria, schedule)</i></b></pre>
+<ul>
+<i>
+<li style="font-size:15px">
+<b>sparsity</b>: the amount of sparsity that you want in your network, as a fraction in [0, 1] (0.5 = 50%)
+</li>
+<li style="font-size:15px">
+<b>granularity</b>: on what granularity you want the sparsification to be operated
+</li>
+<li style="font-size:15px">
+<b>context</b>: either <code>local</code> or <code>global</code>, will affect the selection of parameters to be choosen in each layer independently (<code>local</code>) or on the whole network (<code>global</code>).
+</li>
+<li style="font-size:15px">
+<b>criteria</b>: the criteria used to select which parameters to remove, from <code>fasterai.core.criteria</code> (<code>large_final</code>, <code>movement</code>, <code>random</code>, …)
+</li>
+<li style="font-size:15px">
+<b>schedule</b>: which schedule you want to follow for the sparsification, from <code>fasterai.core.schedule</code> (<code>one_shot</code>, <code>iterative</code>, <code>agp</code>, <code>one_cycle</code>, <code>cos</code>, <code>lin</code>)
+</li>
+</i>
+</ul>
+</blockquote>
+<p><br></p>
+<p><strong>But let’s come back to our example!</strong></p>
+<p>Here, we will make our network <strong>50%</strong> sparse, and remove entire <strong>filters</strong>, selected <strong>globally</strong> and based on their <strong>final magnitude</strong>. We will train with a learning rate a bit smaller to be gentle with our network because it has already been trained. The <strong>scheduling</strong> selected is cosinusoidal, so the sparsification starts and ends quite slowly.</p>
+<div id="8246a27c5397" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>sp_cb <span class="op">=</span> SparsifyCallback(sparsity<span class="op">=</span><span class="fl">0.5</span>, granularity<span class="op">=</span><span class="st">'filter'</span>, context<span class="op">=</span><span class="st">'global'</span>,</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>                         criteria<span class="op">=</span>large_final, schedule<span class="op">=</span>cos)</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> student.no_bar(), student.no_logging(): student.fit(<span class="dv">10</span>, <span class="fl">1e-5</span>, cbs<span class="op">=</span>sp_cb)</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>sparse_k, sparse_n <span class="op">=</span> report_accuracy(student.model, <span class="st">'VGG16 sparsified'</span>, dls)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Sparsifying filter until a sparsity of 50.00%
+Saving Weights at epoch 0
+Sparsity at the end of epoch 0: 1.22%
+Sparsity at the end of epoch 1: 4.77%
+Sparsity at the end of epoch 2: 10.31%
+Sparsity at the end of epoch 3: 17.27%
+Sparsity at the end of epoch 4: 25.00%
+Sparsity at the end of epoch 5: 32.73%
+Sparsity at the end of epoch 6: 39.69%
+Sparsity at the end of epoch 7: 45.23%
+Sparsity at the end of epoch 8: 48.78%
+Sparsity at the end of epoch 9: 50.00%
+Final Sparsity: 50.00%
+
+Sparsity Report:
+--------------------------------------------------------------------------------
+Layer                          Type            Params     Zeros      Sparsity  
+--------------------------------------------------------------------------------
+features.0                     Conv2d          1,728      0              0.00%
+features.3                     Conv2d          36,864     0              0.00%
+features.7                     Conv2d          73,728     0              0.00%
+features.10                    Conv2d          147,456    0              0.00%
+features.14                    Conv2d          294,912    0              0.00%
+features.17                    Conv2d          589,824    0              0.00%
+features.20                    Conv2d          589,824    0              0.00%
+features.24                    Conv2d          1,179,648  783,360       66.41%
+features.27                    Conv2d          2,359,296  1,723,392     73.05%
+features.30                    Conv2d          2,359,296  1,681,920     71.29%
+features.34                    Conv2d          2,359,296  1,626,624     68.95%
+features.37                    Conv2d          2,359,296  1,608,192     68.16%
+features.40                    Conv2d          2,359,296  1,520,640     64.45%
+--------------------------------------------------------------------------------
+Overall                        all             14,710,464 8,944,128     60.80%
+VGG16 sparsified accuracy: 3154/3925 (80.36%)</code></pre>
+</div>
+</div>
+<p>Our network now has <strong>50%</strong> of its filters composed entirely of zeroes, and it ends at <strong>80.36%</strong> (3154/3925) against <strong>81.53%</strong> (3200/3925) before the sparsification — one run each. Read the report above rather than that single figure: the sparsity is spread very unevenly, because a <strong>global</strong> context compares the filters of the whole network against each other, and here the first seven convolutions kept all of theirs. Obviously, choosing a higher sparsity makes it more difficult for the network to keep a similar accuracy. Other parameters can also widely change the behaviour of our sparsification process. For example choosing a more fine-grained sparsity picks the weights one by one instead of by whole filters, which is then more difficult to take advantage of in terms of speed.</p>
+<p><br></p>
+<p>Let’s now see how much we gained in terms of speed. Because we removed <strong>50%</strong> of convolution filters, we should expect crazy speed-up right ?</p>
+<div id="7d18dcbc15b8" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>sparse_ms, lo, hi <span class="op">=</span> evaluate_cpu_speed(student.model, x[<span class="dv">0</span>][<span class="va">None</span>])</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Inference Speed: </span><span class="sc">{</span>sparse_ms<span class="sc">:.2f}</span><span class="ss">ms (</span><span class="sc">{</span>lo<span class="sc">:.2f}</span><span class="ss">–</span><span class="sc">{</span>hi<span class="sc">:.2f}</span><span class="ss"> over three repeats)'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Inference Speed: 24.56ms (24.54–24.58 over three repeats)</code></pre>
+</div>
+</div>
+<p>Well actually, no: <strong>24.56ms</strong>, against <strong>23.40ms</strong> for the dense model, single run each. We didn’t remove any parameters, we just replaced some by zeroes, remember? The amount of parameters is still the same:</p>
+<div id="89ff8c3059b3" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>sparse_params <span class="op">=</span> get_num_parameters(student.model)</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>sparse_size <span class="op">=</span> get_model_size(student.model)</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Model Size: </span><span class="sc">{</span>sparse_size <span class="op">/</span> <span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> MB (disk), </span><span class="sc">{</span>sparse_params<span class="sc">}</span><span class="ss"> parameters"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Model Size: 537.30 MB (disk), 134318423 parameters</code></pre>
+</div>
+</div>
+<p>Which leads us to the next section.</p>
+<p><br></p>
+<hr>
+<p><br></p>
+</section>
+<section id="pruning" class="level2">
+<h2 class="anchored" data-anchor-id="pruning"><strong>Pruning</strong></h2>
+<p>Why don’t we see any acceleration even though we zeroed half of the filters? That’s because natively, our hardware does not know that our matrices are sparse and thus isn’t able to accelerate the computation. The easiest work around, is to <strong>physically</strong> remove filters — most of the ones we zeroed, since the pruner selects its own half. But this operation requires to change the architecture of the network.</p>
+<p>This pruning only works if we remove entire filters as it is the only case where we can change the architecture accordingly. Hopefully, sparse computations are <a href="https://pytorch.org/docs/stable/sparse.html">making their way</a> into common deep learning librairies so this section may become useless in the future.</p>
+<p><br></p>
+<p>Here is what it looks like with fasterai: <br></p>
+<p><img src="../imgs/pruning_filters.png" class="img-fluid"></p>
+<p><br></p>
+<blockquote class="blockquote">
+<pre><b><i>PruneCallback(pruning_ratio, schedule, context, criteria)</i></b></pre>
+<ul>
+<i>
+<li style="font-size:15px">
+<b>pruning_ratio</b>: the amount of filters to remove, as a fraction in [0, 1] (0.5 = 50%)
+</li>
+<li style="font-size:15px">
+<b>schedule</b>: which schedule you want to follow for the pruning, from <code>fasterai.core.schedule</code>
+</li>
+<li style="font-size:15px">
+<b>context</b>: either <code>local</code> or <code>global</code>, will affect the selection of filters to be choosen in each layer independently (<code>local</code>) or on the whole network (<code>global</code>).
+</li>
+<li style="font-size:15px">
+<b>criteria</b>: the criteria used to select which filters to remove, from <code>fasterai.core.criteria</code>
+</li>
+</i>
+</ul>
+</blockquote>
+<p>So in the case of our example, it gives:</p>
+<div id="4b1cdd8bed83" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.prune.<span class="bu">all</span> <span class="im">import</span> <span class="op">*</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Let’s now see what our model is capable of now:</p>
+<div id="c40e40177a0b" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>pr_cb <span class="op">=</span> PruneCallback(pruning_ratio<span class="op">=</span><span class="fl">0.5</span>, schedule<span class="op">=</span>one_cycle, context<span class="op">=</span><span class="st">'global'</span>,</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>                      criteria<span class="op">=</span>large_final)</span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> student.no_bar(), student.no_logging(): student.fit(<span class="dv">5</span>, <span class="fl">1e-5</span>, cbs<span class="op">=</span>pr_cb)</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>pruned_k, pruned_n <span class="op">=</span> report_accuracy(student.model, <span class="st">'VGG16 pruned'</span>, dls)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Ignoring output layer: classifier.6
+Total ignored layers: 1
+Pruning ratio at the end of epoch 0: 1.94%
+Pruning ratio at the end of epoch 1: 19.96%
+Pruning ratio at the end of epoch 2: 45.82%
+Pruning ratio at the end of epoch 3: 49.74%
+Pruning ratio at the end of epoch 4: 50.00%
+VGG16 pruned accuracy: 3158/3925 (80.46%)</code></pre>
+</div>
+</div>
+<div id="e5f75cb8590d" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>pruned_params <span class="op">=</span> get_num_parameters(student.model)</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>pruned_size <span class="op">=</span> get_model_size(student.model)</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Model Size: </span><span class="sc">{</span>pruned_size <span class="op">/</span> <span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> MB (disk), </span><span class="sc">{</span>pruned_params<span class="sc">}</span><span class="ss"> parameters"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Model Size: 173.95 MB (disk), 43481770 parameters</code></pre>
+</div>
+</div>
+<p>And in terms of speed:</p>
+<div id="ece322e39c47" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>pruned_ms, lo, hi <span class="op">=</span> evaluate_cpu_speed(student.model, x[<span class="dv">0</span>][<span class="va">None</span>])</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Inference Speed: </span><span class="sc">{</span>pruned_ms<span class="sc">:.2f}</span><span class="ss">ms (</span><span class="sc">{</span>lo<span class="sc">:.2f}</span><span class="ss">–</span><span class="sc">{</span>hi<span class="sc">:.2f}</span><span class="ss"> over three repeats)'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Inference Speed: 14.60ms (14.58–14.62 over three repeats)</code></pre>
+</div>
+</div>
+<p>Yay ! Now we can talk ! The filters are gone for real this time — <strong>43481770</strong> parameters left against <strong>134318423</strong> with the same filters merely zeroed, and <strong>14.60ms</strong> against <strong>24.56ms</strong>, single run each. And the accuracy printed above says we didn’t mess up somewhere: <strong>80.46%</strong> (3158/3925) at the end of the pruning fit.</p>
+<p><br></p>
+<p>And there is actually more that we can do ! Let’s keep going !</p>
+<p><br></p>
+<hr>
+<p><br></p>
+</section>
+<section id="batch-normalization-folding" class="level2">
+<h2 class="anchored" data-anchor-id="batch-normalization-folding"><strong>Batch Normalization Folding</strong></h2>
+<p><strong>Batch Normalization Folding</strong> is a really easy to implement and straightforward idea. The gist is that batch normalization is nothing more than a normalization of the input data at each layer. Moreover, at inference time, the batch statistics used for this normalization are fixed. We can thus incorporate the normalization process directly in the convolution by changing its weights and completely remove the batch normalization layers, which is a gain both in terms of parameters and in terms of computations. For a more in-depth explaination, see this <a href="https://nathanhubens.github.io/posts/deep%20learning/2020/04/20/BN.html">blog post</a>.</p>
+<p>This is how to use it with FasterAI:</p>
+<blockquote class="blockquote">
+<pre><b><i>bn_folder = BN_Folder()
+bn_folder.fold(model)</i></b></pre>
+<p style="font-size: 15px">
+<i> Again, you only need to pass your model and FasterAI takes care of the rest. For models built using the nn.Sequential, you don’t need to change anything. For others, if you want to see speedup and compression, you actually need to subclass your model to remove the batch norm from the parameters and from the <code>forward</code> method of your network. </i>
+</p>
+</blockquote>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Note
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>This operation is lossless in exact arithmetic, as it redefines the convolution to take batch norm into account and is thus equivalent. In float32 it left the count of correct predictions where it was, 3158/3925 before and after.</p>
+</div>
+</div>
+<p><br></p>
+<div id="397d163e965b" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.misc.bn_folding <span class="im">import</span> <span class="op">*</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Let’s do this with our model !</p>
+<div id="a51b0abb54f8" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb32"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a>bn_f <span class="op">=</span> BN_Folder()</span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a>folded_model <span class="op">=</span> bn_f.fold(student.model.<span class="bu">eval</span>())</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>The parameters drop is generally not that significant, especially in a network such as <strong>VGG</strong> where almost all parameters are contained in the FC layers but, hey, any gain is good to take.</p>
+<div id="9b75c19e8b49" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>folded_params <span class="op">=</span> get_num_parameters(folded_model)</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>folded_size <span class="op">=</span> get_model_size(folded_model)</span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Model Size: </span><span class="sc">{</span>folded_size <span class="op">/</span> <span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> MB (disk), </span><span class="sc">{</span>folded_params<span class="sc">}</span><span class="ss"> parameters"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Model Size: 173.89 MB (disk), 43470249 parameters</code></pre>
+</div>
+</div>
+<p>Now that we removed the batch normalization layers, we should again see a speedup.</p>
+<div id="0125ce919d00" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>folded_ms, lo, hi <span class="op">=</span> evaluate_cpu_speed(folded_model, x[<span class="dv">0</span>][<span class="va">None</span>])</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Inference Speed: </span><span class="sc">{</span>folded_ms<span class="sc">:.2f}</span><span class="ss">ms (</span><span class="sc">{</span>lo<span class="sc">:.2f}</span><span class="ss">–</span><span class="sc">{</span>hi<span class="sc">:.2f}</span><span class="ss"> over three repeats)'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Inference Speed: 12.29ms (12.29–12.30 over three repeats)</code></pre>
+</div>
+</div>
+<p><strong>12.29ms</strong>, against <strong>14.60ms</strong> before the fold, single run each.</p>
+<p>Again, let’s double check that we didn’t mess up somewhere:</p>
+<div id="3f216a143177" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>folded_learner <span class="op">=</span> Learner(dls, folded_model, metrics<span class="op">=</span>[accuracy])</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a>folded_k, folded_n <span class="op">=</span> report_accuracy(folded_learner.model, <span class="st">'VGG16 folded'</span>, dls)</span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Correct predictions moved by the fold: </span><span class="sc">{</span>folded_k <span class="op">-</span> pruned_k<span class="sc">}</span><span class="ss">'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>VGG16 folded accuracy: 3158/3925 (80.46%)
+Correct predictions moved by the fold: 0</code></pre>
+</div>
+</div>
+<p>And we’re still not done yet ! As we know for <strong>VGG16</strong>, most of the parameters are comprised in the fully-connected layers so there should be something that we can do about it, right ?</p>
+<p><br></p>
+<hr>
+<p><br></p>
+</section>
+<section id="fc-layers-factorization" class="level2">
+<h2 class="anchored" data-anchor-id="fc-layers-factorization"><strong>FC Layers Factorization</strong></h2>
+<p>We can indeed, factorize our big fully-connected layers and replace them by an approximation of two smaller layers. The idea is to make an <strong>SVD</strong> decomposition of the weight matrix, which will express the original matrix in a product of 3 matrices: <span class="math inline">\(U \Sigma V^T\)</span>. With <span class="math inline">\(\Sigma\)</span> being a diagonal matrix with non-negative values along its diagonal (the singular values). We then define a value <span class="math inline">\(k\)</span> of singular values to keep and modify matrices <span class="math inline">\(U\)</span> and <span class="math inline">\(V^T\)</span> accordingly. The resulting will be an approximation of the initial matrix.</p>
+<p><img src="../imgs/svd.png" class="img-fluid"></p>
+<p>In FasterAI, to decompose the fully-connected layers of your model, here is what you need to do: <br></p>
+<blockquote class="blockquote">
+<pre><b><i>FCD = FC_Decomposer()
+decomposed_model = FCD.decompose(model, percent_removed)</i></b></pre>
+<p style="font-size: 15px">
+<i> The <code>percent_removed</code> corresponds to the fraction of singular values removed (the <i>k</i> value above). </i>
+</p>
+</blockquote>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Note
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>This time, the decomposition is not exact, so we expect a drop in performance afterwards and further retraining will be needed.</p>
+</div>
+</div>
+<p>Which gives with our example, if we only want to keep half of them:</p>
+<div id="002555f3bef8" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.misc.fc_decomposer <span class="im">import</span> <span class="op">*</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div id="a922a5698fac" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb40"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a>fc_decomposer <span class="op">=</span> FC_Decomposer()</span>
+<span id="cb40-2"><a href="#cb40-2" aria-hidden="true" tabindex="-1"></a>decomposed_model <span class="op">=</span> fc_decomposer.decompose(folded_learner.model, percent_removed<span class="op">=</span><span class="fl">0.5</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>How many parameters do we have now ?</p>
+<div id="26f9bd5e3e3e" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a>decomposed_params <span class="op">=</span> get_num_parameters(decomposed_model)</span>
+<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a>decomposed_size <span class="op">=</span> get_model_size(decomposed_model)</span>
+<span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Model Size: </span><span class="sc">{</span>decomposed_size <span class="op">/</span> <span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> MB (disk), </span><span class="sc">{</span>decomposed_params<span class="sc">}</span><span class="ss"> parameters"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Model Size: 104.98 MB (disk), 26243247 parameters</code></pre>
+</div>
+</div>
+<p>And how much time did we gain ?</p>
+<div id="c94c64d48d0f" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a>decomposed_ms, lo, hi <span class="op">=</span> evaluate_cpu_speed(decomposed_model, x[<span class="dv">0</span>][<span class="va">None</span>])</span>
+<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Inference Speed: </span><span class="sc">{</span>decomposed_ms<span class="sc">:.2f}</span><span class="ss">ms (</span><span class="sc">{</span>lo<span class="sc">:.2f}</span><span class="ss">–</span><span class="sc">{</span>hi<span class="sc">:.2f}</span><span class="ss"> over three repeats)'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Inference Speed: 10.93ms (10.91–10.96 over three repeats)</code></pre>
+</div>
+</div>
+<p>The parameters go from <strong>43470249</strong> down to <strong>26243247</strong>, and the timing from <strong>12.29ms</strong> to <strong>10.93ms</strong>, single run each. This is thus a matter of compromise between network weight and speed, and here both went the same way.</p>
+<p><br></p>
+<p>However, this technique is an approximation so it is not lossless, so we should retrain our network a bit to recover its performance.</p>
+<div id="57b431fa06a1" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb45"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a>final_learner <span class="op">=</span> Learner(dls, decomposed_model, metrics<span class="op">=</span>[accuracy])</span>
+<span id="cb45-2"><a href="#cb45-2" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> final_learner.no_bar(), final_learner.no_logging(): final_learner.fit_one_cycle(<span class="dv">5</span>, <span class="fl">1e-5</span>)</span>
+<span id="cb45-3"><a href="#cb45-3" aria-hidden="true" tabindex="-1"></a>decomposed_k, decomposed_n <span class="op">=</span> report_accuracy(final_learner.model, <span class="st">'VGG16 decomposed'</span>, dls)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>VGG16 decomposed accuracy: 3060/3925 (77.96%)</code></pre>
+</div>
+</div>
+<p>This operation reaches whatever a network keeps in its fully-connected layers, and more recent architectures usually do not keep that many parameters there.</p>
+<p><br></p>
+<hr>
+</section>
+<section id="quantization" class="level2">
+<h2 class="anchored" data-anchor-id="quantization">Quantization</h2>
+<div id="01ed11d1f410" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb47"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.quantize.<span class="bu">all</span> <span class="im">import</span> <span class="op">*</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Now that we have removed every superfluous parameter that we could, we can still continue to compress our model. A common way to do so is now to reduce the precision of each parameter in the network, making it considerably smaller. Such an approach is called <strong>Quantization</strong> and won’t affect the total number of parameter but will make each one of them smaller to store, and have the network compute in 8-bit integers instead of floats.</p>
+<p>In <strong>FasterAI</strong>, quantization can be done in a static way, i.e.&nbsp;apply quantization to the model, also called Post-Training Quantization. It also can be applied during training, also called Quantization-Aware Training. The callback below does the second one: it swaps the layers for their observed counterparts before the fit, trains through them, and converts the result to an actual 8-bit model afterwards.</p>
+<blockquote class="blockquote">
+<pre><b><i>QuantizeCallback(backend='x86')</i></b></pre>
+<p style="font-size: 15px">
+<i> The <code>backend</code> is the engine the quantized model will run on; <code>x86</code> is the CPU one, and the model that comes out of the fit runs on the CPU, which is where we measure it. </i>
+</p>
+</blockquote>
+<div id="8ab28c918f46" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> final_learner.no_bar(), final_learner.no_logging():</span>
+<span id="cb48-2"><a href="#cb48-2" aria-hidden="true" tabindex="-1"></a>    final_learner.fit_one_cycle(<span class="dv">5</span>, <span class="fl">1e-5</span>, cbs<span class="op">=</span>QuantizeCallback())</span>
+<span id="cb48-3"><a href="#cb48-3" aria-hidden="true" tabindex="-1"></a>quantized_k, quantized_n <span class="op">=</span> report_accuracy(final_learner.model, <span class="st">'VGG16 quantized'</span>, dls)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>VGG16 quantized accuracy: 3125/3925 (79.62%)</code></pre>
+</div>
+</div>
+<p>The model that comes out of the fit is an 8-bit one, and it scores <strong>79.62%</strong> (3125/3925) after five more epochs, against <strong>77.96%</strong> (3060/3925) for the floating-point model those epochs started from — one run each, two things changed at once.</p>
+<div id="9a5ac5982f3c" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb50"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a>quantized_params <span class="op">=</span> get_num_parameters(final_learner.model)</span>
+<span id="cb50-2"><a href="#cb50-2" aria-hidden="true" tabindex="-1"></a>quantized_size <span class="op">=</span> get_model_size(final_learner.model)</span>
+<span id="cb50-3"><a href="#cb50-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Model Size: </span><span class="sc">{</span>quantized_size <span class="op">/</span> <span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> MB (disk), </span><span class="sc">{</span>quantized_params<span class="sc">}</span><span class="ss"> parameters"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Model Size: 26.42 MB (disk), 26243287 parameters</code></pre>
+</div>
+</div>
+<div id="557208e7deac" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb52"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a>quantized_ms, lo, hi <span class="op">=</span> evaluate_cpu_speed(final_learner.model, x[<span class="dv">0</span>][<span class="va">None</span>])</span>
+<span id="cb52-2"><a href="#cb52-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Inference Speed: </span><span class="sc">{</span>quantized_ms<span class="sc">:.2f}</span><span class="ss">ms (</span><span class="sc">{</span>lo<span class="sc">:.2f}</span><span class="ss">–</span><span class="sc">{</span>hi<span class="sc">:.2f}</span><span class="ss"> over three repeats)'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Inference Speed: 7.99ms (7.33–9.29 over three repeats)</code></pre>
+</div>
+</div>
+<p>The count barely moves — <strong>26243287</strong> against <strong>26243247</strong>, the few extra ones being the scales the quantized layers carry — but each parameter is now stored on 8 bits instead of 32, so the model takes <strong>26.42 MB</strong> against <strong>104.98 MB</strong>. And it runs in <strong>7.99ms</strong> against <strong>10.93ms</strong> for the floating-point model it was converted from, single run each.</p>
+<hr>
+</section>
+<section id="extra-acceleration" class="level2">
+<h2 class="anchored" data-anchor-id="extra-acceleration">Extra Acceleration</h2>
+<p>One last thing, which compresses nothing but takes what we have and hands it to the CPU in the shape it likes: a channels-last memory layout and a traced graph, so the Python overhead of the module tree is gone at inference time.</p>
+<div id="86095cfa7864" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb54"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb54-1"><a href="#cb54-1" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> fasterai.misc.cpu_optimizer <span class="im">import</span> optimize_for_cpu</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div id="68c322b05670" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb55"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a>final_model <span class="op">=</span> optimize_for_cpu(final_learner.model, x[<span class="dv">0</span>][<span class="va">None</span>].cpu(), backend<span class="op">=</span><span class="st">'trace'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>A traced object carries its own code along with its weights, so what it writes to disk is not quite the state dict of the model it came from:</p>
+<div id="b4c612d4f4f4" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb56"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb56-1"><a href="#cb56-1" aria-hidden="true" tabindex="-1"></a>accelerated_size <span class="op">=</span> get_model_size(final_model)</span>
+<span id="cb56-2"><a href="#cb56-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Model Size: </span><span class="sc">{</span>accelerated_size <span class="op">/</span> <span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> MB (disk)"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Model Size: 26.52 MB (disk)</code></pre>
+</div>
+</div>
+<p><strong>26.52 MB</strong>, against <strong>26.42 MB</strong> for the state dict of the same model. And in terms of speed:</p>
+<div id="2b7d9b2ffdb9" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb58"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a>accelerated_ms, lo, hi <span class="op">=</span> evaluate_cpu_speed(final_model, x[<span class="dv">0</span>][<span class="va">None</span>])</span>
+<span id="cb58-2"><a href="#cb58-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'Inference Speed: </span><span class="sc">{</span>accelerated_ms<span class="sc">:.2f}</span><span class="ss">ms (</span><span class="sc">{</span>lo<span class="sc">:.2f}</span><span class="ss">–</span><span class="sc">{</span>hi<span class="sc">:.2f}</span><span class="ss"> over three repeats)'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Inference Speed: 6.38ms (6.36–6.41 over three repeats)</code></pre>
+</div>
+</div>
+<p><strong>6.38ms</strong>, against <strong>7.99ms</strong> for the same weights run eagerly in the default memory layout, single run each.</p>
+<p>Again, let’s double check that we didn’t mess up somewhere:</p>
+<div id="8e18aa8c514b" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb60"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb60-1"><a href="#cb60-1" aria-hidden="true" tabindex="-1"></a>traced_k, traced_n <span class="op">=</span> report_accuracy(final_model, <span class="st">'VGG16 traced'</span>, dls)</span>
+<span id="cb60-2"><a href="#cb60-2" aria-hidden="true" tabindex="-1"></a>trace_agree <span class="op">=</span> count_agreement(final_learner.model, final_model, dls)</span>
+<span id="cb60-3"><a href="#cb60-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f'predictions identical on </span><span class="sc">{</span>trace_agree<span class="sc">}</span><span class="ss"> of </span><span class="sc">{</span>traced_n<span class="sc">}</span><span class="ss"> images'</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>VGG16 traced accuracy: 3125/3925 (79.62%)
+predictions identical on 3925 of 3925 images</code></pre>
+</div>
+</div>
+<p><strong>3125/3925</strong>, the same count as the model it was traced from, and the two answer identically on all 3925 validation images: the tracing changed the memory layout and the call path, not the arithmetic.</p>
+<hr>
+</section>
+<section id="summary" class="level2">
+<h2 class="anchored" data-anchor-id="summary">Summary</h2>
+<p>So to recap, we saw in this article how to use fasterai to: <br> 1. Make a student model learn from a teacher model (<strong>Knowledge Distillation</strong>) <br> 2. Make our network sparse (<strong>Sparsifying</strong>) <br> 3. Optionally physically remove the zero-filters (<strong>Pruning</strong>) <br> 4. Remove the batch norm layers (<strong>Batch Normalization Folding</strong>) <br> 5. Approximate our big fully-connected layers by smaller ones (<strong>Fully-Connected Layers Factorization</strong>) <br> 6. Quantize the model to reduce the precision of the weights (<strong>Quantization</strong>) <br> 7. Trace the result to take the Python overhead out of the inference (<strong>Extra Acceleration</strong>)</p>
+<p><br></p>
+<div id="13c9fd103337" class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb62"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb62-1"><a href="#cb62-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"VGG16 after its ten epochs: </span><span class="sc">{</span>baseline_size<span class="op">/</span><span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> MB and </span><span class="sc">{</span>trained_ms<span class="sc">:.2f}</span><span class="ss">ms per image "</span></span>
+<span id="cb62-2"><a href="#cb62-2" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"(</span><span class="sc">{</span>baseline_k<span class="sc">}</span><span class="ss">/</span><span class="sc">{</span>baseline_n<span class="sc">}</span><span class="ss"> correct)"</span>)</span>
+<span id="cb62-3"><a href="#cb62-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"After the seven steps: </span><span class="sc">{</span>accelerated_size<span class="op">/</span><span class="fl">1e6</span><span class="sc">:.2f}</span><span class="ss"> MB and </span><span class="sc">{</span>accelerated_ms<span class="sc">:.2f}</span><span class="ss">ms per image "</span></span>
+<span id="cb62-4"><a href="#cb62-4" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"(</span><span class="sc">{</span>traced_k<span class="sc">}</span><span class="ss">/</span><span class="sc">{</span>traced_n<span class="sc">}</span><span class="ss"> correct)"</span>)</span>
+<span id="cb62-5"><a href="#cb62-5" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Compression ratio: </span><span class="sc">{</span>baseline_size<span class="op">/</span>accelerated_size<span class="sc">:.1f}</span><span class="ss">x, "</span></span>
+<span id="cb62-6"><a href="#cb62-6" aria-hidden="true" tabindex="-1"></a>      <span class="ss">f"speed ratio: </span><span class="sc">{</span>trained_ms<span class="op">/</span>accelerated_ms<span class="sc">:.1f}</span><span class="ss">x"</span>)</span>
+<span id="cb62-7"><a href="#cb62-7" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"1-minute load average at the timing cells: from </span><span class="sc">{</span><span class="bu">min</span>(LOADS)<span class="sc">:.1f}</span><span class="ss"> to </span><span class="sc">{</span><span class="bu">max</span>(LOADS)<span class="sc">:.1f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>VGG16 after its ten epochs: 537.30 MB and 23.84ms per image (3183/3925 correct)
+After the seven steps: 26.52 MB and 6.38ms per image (3125/3925 correct)
+Compression ratio: 20.3x, speed ratio: 3.7x
+1-minute load average at the timing cells: from 0.5 to 9.2</code></pre>
+</div>
+</div>
+<p>And we saw that by applying those, we could reduce our <strong>VGG16</strong> model from <strong>537.30 MB</strong> of parameters down to <strong>26.52 MB</strong> (<strong>20.3x</strong> compression) — that last figure written by <code>torch.jit.save</code>, where every other size on this page is a <code>torch.save</code> of the state dict — and also speed-up the inference from <strong>23.84ms</strong> to <strong>6.38ms</strong> (<strong>3.7x</strong> speed-up), single run, the reference being the trained <strong>VGG16</strong> and not the untrained one timed at the top. The accuracy went from 3183/3925 correct to 3125/3925 — the final model having had thirty-five epochs to the baseline’s ten (see the scope below).</p>
+<p><strong>Scope.</strong> VGG16 trained from scratch on Imagenette at 128 pixels, 9469 training images and 3925 validation ones, one run of each step: ten epochs for the baseline, three for the pretrained VGG19 teacher, ten for the student, ten with the <a href="https://FasterAI-Labs.github.io/fasterai/sparse/sparsify_callback.html#sparsifycallback"><code>SparsifyCallback</code></a>, five with the <a href="https://FasterAI-Labs.github.io/fasterai/prune/prune_callback.html#prunecallback"><code>PruneCallback</code></a>, five to recover from the factorization and five more with the <a href="https://FasterAI-Labs.github.io/fasterai/quantize/quantize_callback.html#quantizecallback"><code>QuantizeCallback</code></a>. The baseline and the student are built and fitted under <code>set_seed(42, reproducible=True)</code>, so those two differ only in the callback; nothing else on the page is seeded. Every accuracy on this page is the whole validation set, printed as k/n.&nbsp;Every latency is a single image on the CPU of the box named above, ten warm-up passes then three timing repeats of fifty passes each, one run of the page; the recap prints the range of the 1-minute load average at those cells, 0.5 to 9.2.</p>
+<p><br></p>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Note
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Please keep in mind that the techniques presented above are not magic 🧙‍♂️, so do not expect to see the same compression and speed-up everytime. What you can achieve highly depend on the architecture that you are using (some are already speed/parameter efficient by design) or the task it is doing (some datasets are so easy that you can remove almost all your network without seeing a drop in performance)</p>
+</div>
+</div>
+<p><br></p>
+<hr>
+</section>
+<section id="see-also" class="level2">
+<h2 class="anchored" data-anchor-id="see-also">See Also</h2>
+<ul>
+<li><a href="distill/distill_callback.html">Knowledge Distillation</a> - The distillation callback, its losses and its feature-map variants</li>
+<li><a href="sparse/sparsify_callback.html">Sparsify Callback</a> - Sparsification on its own, granularity by granularity</li>
+<li><a href="prune/prune_callback.html">Prune Callback</a> - Removing the filters inside the training loop</li>
+<li><a href="misc/bn_folding.html">BatchNorm Folding</a> - Folding BatchNorm into the convolution ahead of it</li>
+<li><a href="misc/fc_decomposer.html">FC Decomposition</a> - Factorizing fully-connected layers with SVD</li>
+<li><a href="quantize/quantize_callback.html">Quantize Callback</a> - Quantization-aware training and its backends</li>
+</ul>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/FasterAI-Labs\.github\.io\/fasterai");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+      &nbsp;
+    </div>   
+    <div class="nav-footer-center">
+<p>© By Nathan Hubens</p>
+<div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/FasterAI-Labs/fasterai/issues/new" class="toc-action"><i class="bi bi-github"></i>Report an issue</a></li></ul></div></div>
+    <div class="nav-footer-right">
+      &nbsp;
+    </div>
+  </div>
+</footer>
+
+
+
+
+</body></html>
