@@ -34,6 +34,7 @@ class PruneCallback(Callback):
                  *args,
                  **kwargs
     ):
+        if 'reg' in kwargs: raise ValueError("PruneCallback does not regularize: give reg to a Pruner and train with GroupRegularizeCallback.")
         store_attr()
         self.sparsity_levels = []
         self._is_per_layer = False

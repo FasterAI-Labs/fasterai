@@ -117,6 +117,7 @@ website:
       - section: Regularize
         contents:
         - regularize/regularize_callback.ipynb
+        - regularize/group_regularize_callback.ipynb
       - section: Misc
         contents:
         - misc/bn_folding.ipynb
