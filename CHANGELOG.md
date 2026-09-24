@@ -2,6 +2,17 @@
 
 <!-- do not remove -->
 
+## Unreleased
+
+### New Features
+- `Pruner(..., reg=1e-4)` builds torch-pruning's `GroupNormPruner` instead of its `MetaPruner`, and the new `Pruner.regularize(scale=1.)` adds DepGraph's group penalty to the gradients already computed: every channel of a dependency group receives `reg * gamma * w` on each tensor it spans — the convolution's filter, the batch-norm weight and the input slices of the layers that read it. `gamma` runs from `1` on the group's most important channel to `2**alpha` on its least important one (`alpha=4` by default), measured on the square root of the pruner's own `criteria` score. It is called after `backward` and before the optimizer step, and `scale` multiplies the penalty for gradients that are themselves scaled (a mixed-precision loss scale, gradient accumulation). Only the groups the pruner will prune are penalized, so a per-layer dict leaves the layers it does not target alone; a group with a constant importance (a single channel among them) is skipped instead of producing `nan` gradients, with one warning if every group is; the groups are rebuilt after each `prune_model()`. Biases, frozen parameters and a depthwise convolution's own kernels are not penalized. `reg` and `alpha` are keyword-only and `reg < 0` is refused. `reg=0`, the default, builds the same `MetaPruner` as before and prunes identically apart from the device fix below. `PruneCallback` is unchanged
+
+### Bug Fixes
+- `Pruner.group_importance` returns its scores on the device of the layers it scored instead of fastai's default device, which put them on the GPU for a model on the CPU whenever one was available. The ranking a prune step makes is unchanged: torch-pruning moves the scores to the CPU before ranking them
+
+### Dependencies
+- `torch-pruning>=1.5`
+
 ## 0.4.1
 
 ### Bug Fixes

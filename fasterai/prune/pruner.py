@@ -4,6 +4,7 @@
 __all__ = ['Pruner']
 
 # %% ../../nbs/prune/pruner.ipynb #e1b7a541
+import warnings
 import torch
 import torch.nn as nn
 import torch_pruning as tp
@@ -19,6 +20,31 @@ from fastai.vision.all import *
 from torch_pruning.pruner.algorithms.scheduler import linear_scheduler
 from torch.fx import symbolic_trace
 
+# %% ../../nbs/prune/pruner.ipynb #7d1d9daa
+class _GroupNormPruner(tp.pruner.GroupNormPruner):
+    "`GroupNormPruner` restricted to the groups this pruner will prune, skipping constant-importance ones"
+    _skipped = None  # groups skipped by the current `regularize`, None outside it
+
+    def _targeted(self, group):
+        # same lookup as `BasePruner._prune`: the first out-channel layer with its own ratio decides, else the default ratio
+        m = next((m for dep, _ in group for m, fn in ((dep.source.module, dep.trigger), (dep.target.module, dep.handler))
+                  if m in self._layer_to_scope and self.DG.is_out_channel_pruning_fn(fn)), group[0].dep.target.module)
+        return self.get_target_pruning_ratio(m, step=self.iterative_steps) > 0
+
+    def estimate_importance(self, group):
+        imp = super().estimate_importance(group)
+        if self._skipped is None or imp.max() > imp.min(): return imp
+        self._skipped += 1
+        return torch.full_like(imp, float('nan'))  # the parent skips a nan group; a constant one would give it nan gammas
+
+    @torch.no_grad()
+    def regularize(self, model, alpha=2**4, bias=False):
+        self._groups = [g for g in self._groups if self._targeted(g)]
+        self._skipped = 0
+        super().regularize(model, alpha=alpha, bias=bias)
+        if self._groups and self._skipped == len(self._groups): warnings.warn("Every group has a constant importance: no penalty was applied.")
+        self._skipped = None
+
 # %% ../../nbs/prune/pruner.ipynb #63acddeb-f30e-448b-a397-d4cac2adba7a
 from ..core.schedule import Schedule
 
@@ -33,7 +59,9 @@ class Pruner():
                  ignored_layers=None,         # Layers to leave untouched; None = output Linear and attention qkv
                  example_inputs=torch.randn(1, 3, 224, 224),  # Input used to trace layer dependencies
                  *args,
-                 **kwargs                     # Passed to `tp.pruner.MetaPruner`
+                 reg: float = 0.,             # Group penalty coefficient applied by `regularize`; 0 = no penalty
+                 alpha: float = 4,            # The least important channel of a group gets 2**alpha times the penalty of the most important
+                 **kwargs                     # Passed to the torch-pruning pruner
     ):
         if not any(p.requires_grad for p in model.parameters()):
             raise ValueError("No parameter requires grad: call model.requires_grad_(True) before pruning.")
@@ -42,6 +70,7 @@ class Pruner():
             raise ValueError(f"'{parametrized}' computes its weight from a parametrization (e.g. "
                              "FakeQuantizeCallback's rounding), which torch-pruning cannot rewrite: bake "
                              "or strip it before pruning.")
+        if reg < 0: raise ValueError(f"reg must be >= 0, got {reg}.")
         store_attr()
         self.example_inputs = example_inputs.as_subclass(torch.Tensor).clone().to(next(model.parameters()).device)  # a subclass breaks the dependency trace, the clone escapes inference mode
         self.num_heads = {}
@@ -60,8 +89,10 @@ class Pruner():
             self.default_pruning_ratio = self.pruning_ratio
 
         tp_schedule = self._to_tp_scheduler(self.schedule)
+        if reg: pruner_cls, kwargs = _GroupNormPruner, {**kwargs, 'reg': reg}
+        else:   pruner_cls = tp.pruner.MetaPruner
 
-        self.pruner = tp.pruner.MetaPruner(
+        self.pruner = pruner_cls(
             self.model,
             example_inputs=self.example_inputs,
             importance=self.group_importance,
@@ -106,6 +137,15 @@ class Pruner():
         "Execute one pruning step and restore attention layer configurations"
         self.pruner.step()
         self.restore_attention_layers()
+        if self.reg: self.pruner.update_regularizer()
+
+    def regularize(self,
+                   scale: float = 1.,  # Multiplies the penalty, for gradients that are scaled (AMP loss scale, accumulation)
+    ):
+        "Add the group penalty to the current gradients, between `backward` and the optimizer step"
+        if not self.reg: raise ValueError("regularize() needs a penalty: build the Pruner with reg > 0.")
+        self.pruner.reg = self.reg * scale
+        self.pruner.regularize(self.model, alpha=2**self.alpha)
 
 
     def get_linear_layers_to_ignore(self, 
@@ -194,7 +234,7 @@ class Pruner():
     
         reduced_imp /= len(group_imp)
     
-        return reduced_imp.to(default_device())
+        return reduced_imp.to(group_imp[0].device)
 
     def print_sparsity(self) -> None:
         "Print pruning report showing channel counts and parameter reduction"
