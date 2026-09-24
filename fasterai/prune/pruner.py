@@ -46,6 +46,7 @@ class _GroupNormPruner(tp.pruner.GroupNormPruner):
         self._skipped = None
 
 # %% ../../nbs/prune/pruner.ipynb #63acddeb-f30e-448b-a397-d4cac2adba7a
+from copy import copy
 from ..core.schedule import Schedule
 
 class Pruner():
@@ -106,20 +107,13 @@ class Pruner():
             **kwargs
         )
 
-    def _build_pruning_schedule(self, sched_func):
-        "Create a schedule function compatible with torch-pruning's Pruner"
-        def scheduler(pruning_ratio, steps, start=0, end=1):
-            return [
-                sched_func(start, end, i / float(steps)) * pruning_ratio
-                for i in range(steps + 1)
-            ]
-        return scheduler
-
     def _to_tp_scheduler(self, schedule):
-        "Convert Schedule object or callable to torch-pruning compatible scheduler"
-        if isinstance(schedule, Schedule):
-            return self._build_pruning_schedule(schedule.sched_func)
-        return schedule
+        "torch-pruning scheduler from a Schedule, `start_pct`/`end_pct` honoured; callables pass through"
+        if not isinstance(schedule, Schedule): return schedule
+        def scheduler(pruning_ratio, steps):
+            s = copy(schedule)
+            return [s.progress(i / steps) * pruning_ratio for i in range(steps + 1)]
+        return scheduler
 
     def _resolve_pruning_ratio_dict(self, ratio_dict):
         "Convert layer name strings to module references for torch-pruning"

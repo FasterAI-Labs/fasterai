@@ -41,16 +41,6 @@ class PruneCallback(Callback):
         self.extra_kwargs = kwargs
         self._validate_pruning_ratio()
 
-    def _build_pruning_schedule(self, sched_func):
-        "Create a schedule function compatible with torch-pruning's Pruner"
-        start_val, end_val = self.schedule.start_val, self.schedule.end_val
-        def scheduler(pruning_ratio, steps, start=start_val, end=end_val):
-            return [
-                sched_func(start, end, i / float(steps)) * pruning_ratio
-                for i in range(steps + 1)
-            ]
-        return scheduler
-
     def _validate_pruning_ratio(self) -> None:
         "Read pruning_ratio as a fraction, supporting both a single value and a per-layer dict"
         self._is_per_layer = isinstance(self.pruning_ratio, dict)
@@ -71,20 +61,18 @@ class PruneCallback(Callback):
 
         self.example_inputs, _ = self.learn.dls.one_batch()
 
-        pruning_schedule = self._build_pruning_schedule(self.schedule.sched_func)
-        # nothing single to log for a per-layer dict: torch-pruning schedules each layer on its own
-        self.sparsity_levels = [] if self._is_per_layer else pruning_schedule(self.pruning_ratio, total_training_steps)
-
         self.pruner = Pruner(
             self.learn.model,
             criteria=self.criteria,
             pruning_ratio=self.pruning_ratio, 
             context=self.context,
             iterative_steps=total_training_steps, 
-            schedule=pruning_schedule,
+            schedule=self.schedule,
             *self.extra_args, 
             **self.extra_kwargs
         )
+        # nothing single to log for a per-layer dict: torch-pruning schedules each layer on its own
+        self.sparsity_levels = [] if self._is_per_layer else list(self.pruner.pruner.per_step_pruning_ratio)
         
     def before_step(self) -> None:
         "Apply pruning before optimizer step"
