@@ -25,9 +25,12 @@ class RegularizeCallback(Callback):
                  weight: float = 0.01,
                  layer_types: Type | list[Type] = nn.Conv2d,  # Module types to regularize
                  schedule: Schedule | None = None,            # Optional schedule for the weight
-                 verbose: bool = False                        # Report the weight after each epoch
+                 verbose: bool = False,                       # Report the weight after each epoch
+                 *,
+                 norm: int = 1,                               # 1: elementwise L1, 2: group lasso over `granularity`
     ):
         "Callback to apply regularization using criteria during training"
+        if norm not in (1, 2): raise ValueError(f"norm must be 1 or 2, got {norm!r}")
         store_attr()
         self.criteria = listify(criteria)
         self.granularity = listify(granularity)
@@ -50,6 +53,11 @@ class RegularizeCallback(Callback):
         for m in self.learn.model.modules():
             if any(isinstance(m, lt) for lt in self.layer_types) and hasattr(m, 'weight'):
                 yield m
+
+    def _group_norms(self, w, dims):
+        "Per-group L1 (`norm=1`) or L2 (`norm=2`) norms of `w` over `dims`"
+        if self.norm == 1: return w.abs().sum(dims)
+        return torch.linalg.vector_norm(w, 2, dim=dims)
             
     def get_norm(self) -> torch.Tensor:
         "Compute regularization using the specified criteria and granularities"
@@ -60,7 +68,7 @@ class RegularizeCallback(Callback):
             for g in self.granularity:
                 for m in layers:
                     try:
-                        scores = crit.f(m.weight)[None].abs().sum(Granularities.get_dim(m, g))
+                        scores = self._group_norms(crit.f(m.weight)[None], Granularities.get_dim(m, g))
                         layer_regs.append(self.current_weight * scores.sum())
                     except (KeyError, ValueError) as e:
                         warnings.warn(f"Skipping regularization for {type(m).__name__}: {e}")
