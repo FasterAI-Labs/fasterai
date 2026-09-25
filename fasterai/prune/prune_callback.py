@@ -69,8 +69,8 @@ class PruneCallback(Callback):
             context=self.context,
             iterative_steps=total_training_steps, 
             schedule=self.schedule,
-            *self.extra_args, 
-            **self.extra_kwargs
+            *self.extra_args,
+            **{'example_inputs': self.example_inputs, **self.extra_kwargs}  # an example_inputs given by the user wins
         )
         # nothing single to log for a per-layer dict: torch-pruning schedules each layer on its own
         self.sparsity_levels = [] if self._is_per_layer else list(self.pruner.pruner.per_step_pruning_ratio)
@@ -122,6 +122,6 @@ class PruneCallback(Callback):
             print(f'Pruning {len(self.pruning_ratio)} layers to per-layer targets (epoch {self.epoch})')
             return
         completed_steps = (self.epoch + 1) * len(self.learn.dls.train)
-        if completed_steps > 0 and completed_steps <= len(self.sparsity_levels):
-            current_ratio = self.sparsity_levels[completed_steps - 1]
+        if completed_steps < len(self.sparsity_levels):  # torch-pruning's k-th step applies levels[k]
+            current_ratio = self.sparsity_levels[completed_steps]
             print(f'Pruning ratio at the end of epoch {self.epoch}: {current_ratio:.2%}')

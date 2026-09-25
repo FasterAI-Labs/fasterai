@@ -14,6 +14,8 @@
 
 ### Bug Fixes
 - `Pruner.group_importance` returns its scores on the device of the layers it scored instead of fastai's default device, which put them on the GPU for a model on the CPU whenever one was available. The ranking a prune step makes is unchanged: torch-pruning moves the scores to the CPU before ranking them
+- `PruneCallback` logs, at the end of each epoch, the pruning ratio torch-pruning actually applied. torch-pruning's `step()` advances its step counter before reading the level, so after `k` steps the model is at level `k`; the log printed level `k - 1`, one step behind, and the last epoch did not print the final target
+- `PruneCallback` hands the batch it takes from `learn.dls.one_batch()` to the `Pruner` as `example_inputs`, so the dependency graph is traced on the fit's own data. It was read and then dropped, and the `Pruner` traced on its default `torch.randn(1, 3, 224, 224)`, which failed on a model that does not accept a 224x224 image. An `example_inputs` passed to the callback still wins
 
 ### Dependencies
 - `torch-pruning>=1.5`
